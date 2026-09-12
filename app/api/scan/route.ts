@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
-import { ensureSchema, Watch } from "@/lib/db";
-import { buildSearchUrl, scrapeSearchPage } from "@/lib/scraper";
-import { sendTelegramMessage } from "@/lib/telegram";
+import { ensureSchema, Watch } from "../../../lib/db";
+import { buildSearchUrl, scrapeSearchPage } from "../../../lib/scraper";
+import { sendTelegramMessage } from "../../../lib/telegram";
 
 export const maxDuration = 60; // vteřin, ať má scan čas na víc watchů
 
