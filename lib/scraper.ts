@@ -38,6 +38,117 @@ function matchesKeyword(
   );
 }
 
+function scoreProduct(
+  productName: string,
+  keyword: string
+): number {
+  const name = normalizeText(productName);
+  const query = normalizeText(keyword);
+
+  const queryWords = query
+    .split(" ")
+    .filter(Boolean);
+
+  let score = 0;
+
+  // Přesná shoda celého hledaného výrazu
+  if (name.includes(query)) {
+    score += 50;
+  }
+
+  // Každé slovo hledaného výrazu
+  for (const word of queryWords) {
+    if (name.includes(word)) {
+      score += 20;
+    }
+  }
+
+  // Slova typická pro hlavní produkt
+  const mainProductWords = [
+    "telefon",
+    "mobil",
+    "smartphone",
+    "tablet",
+    "notebook",
+    "pocitac",
+    "televize",
+    "monitor",
+    "hodinky",
+    "sluchatka",
+    "vysavac",
+    "mixér",
+    "mixer",
+    "kuchynsky robot",
+    "robot",
+    "gril",
+    "kavovar",
+    "fotoaparat",
+    "kamera",
+    "drone",
+    "dron",
+    "konzole",
+    "herni konzole",
+  ];
+
+  for (const word of mainProductWords) {
+    if (name.includes(word)) {
+      score += 15;
+    }
+  }
+
+  // Slova typická pro příslušenství / náhradní díly
+  const accessoryWords = [
+    "pouzdro",
+    "obal",
+    "kryt",
+    "folie",
+    "sklo",
+    "ochranne sklo",
+    "kabel",
+    "nabijecka",
+    "adapter",
+    "napajeci",
+    "drzak",
+    "stojanek",
+    "filtr",
+    "kartac",
+    "hadice",
+    "trubice",
+    "hubice",
+    "sacek",
+    "sacky",
+    "nahradni",
+    "nahradni dil",
+    "dil",
+    "nadoba",
+    "vicko",
+    "reminek",
+    "pasek",
+    "baterie",
+    "akumulator",
+    "skladaci",
+    "sitko",
+    "tesneni",
+  ];
+
+  // Pokud uživatel příslušenství přímo hledá,
+  // nebudeme ho penalizovat.
+  const userWantsAccessory =
+    accessoryWords.some((word) =>
+      query.includes(word)
+    );
+
+  if (!userWantsAccessory) {
+    for (const word of accessoryWords) {
+      if (name.includes(word)) {
+        score -= 30;
+      }
+    }
+  }
+
+  return score;
+}
+
 function extractProductName(
   $: cheerio.CheerioAPI,
   element: cheerio.Element
@@ -399,5 +510,19 @@ console.error(
   `ODKARLA DEBUG: celkem unikátních produktů=${uniqueList.length}`
 );
 
+uniqueList.sort((a, b) => {
+  const scoreA = scoreProduct(
+    a.name,
+    keyword
+  );
+
+  const scoreB = scoreProduct(
+    b.name,
+    keyword
+  );
+
+  return scoreB - scoreA;
+});
+
 return uniqueList;
-  }
+}
