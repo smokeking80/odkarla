@@ -1,4 +1,3 @@
-```ts
 import * as cheerio from "cheerio";
 
 export type ScrapedProduct = {
@@ -124,5 +123,65 @@ export async function scrapeSearchPage(
       if (!bestName) {
         const imageAlt = $(el)
           .find("img[alt]")
-          .f
-```
+          .first()
+          .attr("alt")
+          ?.trim();
+
+        const linkText = $(el)
+          .clone()
+          .children()
+          .remove()
+          .end()
+          .text()
+          .trim();
+
+        bestName =
+          title ||
+          imageAlt ||
+          linkText ||
+          "";
+      }
+
+      if (bestPrice === null) {
+        bestPrice = parsePrice(text);
+      }
+
+      if (bestName && bestPrice !== null) {
+        break;
+      }
+
+      card = card.parent();
+    }
+
+    if (!bestName) {
+      bestName = $(el)
+        .text()
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    if (!bestName || bestName.length < 2) {
+      return;
+    }
+
+    seen.add(absoluteUrl);
+
+    products.push({
+      url: absoluteUrl,
+      name: bestName,
+      price: bestPrice,
+    });
+  });
+
+  return products;
+}
+
+export function buildSearchUrl(
+  template: string,
+  keyword: string
+): string {
+  return template.replace(
+    "{query}",
+    encodeURIComponent(keyword.trim())
+  );
+}
