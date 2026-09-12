@@ -1,294 +1,87 @@
-import * as cheerio from "cheerio";
+import { sql } from "@vercel/postgres";
 
-export type ScrapedProduct = {
-  url: string;
-  name: string;
-  price: number | null;
+export type Watch = {
+  id: number;
+  keyword: string;
+  max_price: number | null;
+  created_at: string;
 };
 
-function normalizeText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+export type FoundItem = {
+  id: number;
+  watch_id: number;
+  product_url: string;
+  name: string;
+  brand: string | null;
+  model: string | null;
+  ean: string | null;
+  asin: string | null;
+  category: string | null;
+  first_price: number | null;
+  last_price: number | null;
+  first_seen_at: string;
+  last_checked_at: string;
+  last_notified_at: string | null;
+};
 
-function matchesKeyword(productName: string, keyword: string): boolean {
-  const normalizedName = normalizeText(productName);
-  const normalizedKeyword = normalizeText(keyword);
-
-  if (!normalizedKeyword) return true;
-
-  const words = normalizedKeyword
-    .split(" ")
-    .filter(Boolean);
-
-  return words.every((word) =>
-    normalizedName.includes(word)
-  );
-}
-
-/**
- * Slova, která typicky označují příslušenství.
- *
- * Použijí se pouze tehdy, když samotný hledaný výraz
- * není hledáním příslušenství.
- */
-const ACCESSORY_WORDS = [
-  "pouzdro",
-  "pouzdra",
-  "kryt",
-  "kryty",
-  "obal",
-  "obaly",
-  "sklo",
-  "folie",
-  "fólie",
-  "ochranne sklo",
-  "ochranna folie",
-  "ochranné sklo",
-  "ochranná fólie",
-  "drzak",
-  "držák",
-  "drzaky",
-  "držáky",
-  "kabel",
-  "kabely",
-  "nabijecka",
-  "nabíječka",
-  "nabijecky",
-  "nabíječky",
-  "adapter",
-  "adaptér",
-  "adaptery",
-  "adaptéry",
-  "stylus",
-  "pero",
-  "selfie tyc",
-  "selfie tyč",
-  "stojan",
-  "stojany",
-  "dock",
-  "dokovaci",
-  "dokovací",
-  "powerbanka",
-  "powerbanky",
-  "baterie",
-  "reminek",
-  "řemínek",
-  "reminky",
-  "řemínky",
-  "prislusenstvi",
-  "příslušenství",
-];
-
-function containsAccessoryWord(name: string): boolean {
-  const normalizedName = normalizeText(name);
-
-  return ACCESSORY_WORDS.some((word) => {
-    const normalizedWord = normalizeText(word);
-
-    return normalizedName.includes(normalizedWord);
-  });
-}
-
-/**
- * Pokud uživatel hledá přímo příslušenství,
- * nesmíme ho odfiltrovat.
- *
- * Například:
- *   "iphone kabel"
- *   "iphone pouzdro"
- *   "samsung nabijecka"
- */
-function keywordIsAccessorySearch(keyword: string): boolean {
-  const normalizedKeyword = normalizeText(keyword);
-
-  return ACCESSORY_WORDS.some((word) => {
-    const normalizedWord = normalizeText(word);
-
-    return normalizedKeyword.includes(normalizedWord);
-  });
-}
-
-function extractProductName(
-  $: cheerio.CheerioAPI,
-  element: cheerio.Element
-): string {
-  const link = $(element);
-
-  const title = link.attr("title")?.trim();
-  if (title) {
-    return title;
-  }
-
-  const imageAlt = link
-    .find("img[alt]")
-    .first()
-    .attr("alt")
-    ?.trim();
-
-  if (imageAlt) {
-    return imageAlt;
-  }
-
-  const linkText = link
-    .clone()
-    .find("script, style")
-    .remove()
-    .end()
-    .text()
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (linkText) {
-    return linkText;
-  }
-
-  const parent = link.parent();
-
-  const heading = parent
-    .find("h1, h2, h3, h4, h5, h6")
-    .first()
-    .text()
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (heading) {
-    return heading;
-  }
-
-  return "";
-}
-
-function extractPrice(text: string): number | null {
-  const match = text.match(
-    /(\d[\d\s]*)\s*Kč/i
-  );
-
-  if (!match) {
-    return null;
-  }
-
-  const number = match[1]
-    .replace(/\s/g, "")
-    .replace(",", ".");
-
-  const price = Number(number);
-
-  return Number.isFinite(price)
-    ? price
-    : null;
-}
-
-export function buildSearchUrl(
-  template: string,
-  keyword: string
-): string {
-  return template.replace(
-    "{query}",
-    encodeURIComponent(keyword)
-  );
-}
-
-export async function scrapeSearchPage(
-  url: string,
-  keyword: string
-): Promise<ScrapedProduct[]> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml",
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `OdKarla odpověděla HTTP ${response.status}`
+export async function ensureSchema() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS watches (
+      id SERIAL PRIMARY KEY,
+      keyword TEXT NOT NULL,
+      max_price INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-  }
+  `;
 
-  const html = await response.text();
-  const $ = cheerio.load(html);
+  await sql`
+    CREATE TABLE IF NOT EXISTS found_items (
+      id SERIAL PRIMARY KEY,
+      watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+      product_url TEXT NOT NULL,
+      name TEXT NOT NULL,
 
-  const products: ScrapedProduct[] = [];
+      brand TEXT,
+      model TEXT,
+      ean TEXT,
+      asin TEXT,
+      category TEXT,
 
-  const accessorySearch =
-    keywordIsAccessorySearch(keyword);
+      first_price INTEGER,
+      last_price INTEGER,
 
-  $('a[href*="~p"]').each((_, element) => {
-    const link = $(element);
-    const href = link.attr("href");
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_notified_at TIMESTAMPTZ,
 
-    if (!href) return;
-
-    const absoluteUrl = new URL(
-      href,
-      url
-    ).toString();
-
-    const name = extractProductName(
-      $,
-      element
+      UNIQUE (watch_id, product_url)
     );
+  `;
 
-    if (!name) return;
+  // Přidání nových sloupců do existující databáze.
+  // Díky IF NOT EXISTS nepřijdeme o již uložené produkty.
+  await sql`
+    ALTER TABLE found_items
+    ADD COLUMN IF NOT EXISTS brand TEXT;
+  `;
 
-    // Nejdříve musí odpovídat hledanému výrazu.
-    if (!matchesKeyword(name, keyword)) {
-      return;
-    }
+  await sql`
+    ALTER TABLE found_items
+    ADD COLUMN IF NOT EXISTS model TEXT;
+  `;
 
-    // Pokud uživatel hledá příslušenství,
-    // necháme příslušenství normálně projít.
-    //
-    // Např. "iphone kabel" -> kabely NEVYŘAZUJEME.
-    //
-    // Pokud ale hledá samotný telefon,
-    // vyřadíme typické příslušenství.
-    if (
-      !accessorySearch &&
-      containsAccessoryWord(name)
-    ) {
-      return;
-    }
+  await sql`
+    ALTER TABLE found_items
+    ADD COLUMN IF NOT EXISTS ean TEXT;
+  `;
 
-    const cardText = link
-      .parent()
-      .parent()
-      .text()
-      .replace(/\s+/g, " ")
-      .trim();
+  await sql`
+    ALTER TABLE found_items
+    ADD COLUMN IF NOT EXISTS asin TEXT;
+  `;
 
-    const price =
-      extractPrice(cardText) ??
-      extractPrice(name);
-
-    products.push({
-      url: absoluteUrl,
-      name,
-      price,
-    });
-  });
-
-  // OdKarla může některé produkty vrátit vícekrát
-  // přes různé odkazy. Odstraníme duplicity podle URL.
-  const uniqueProducts =
-    new Map<string, ScrapedProduct>();
-
-  for (const product of products) {
-    if (!uniqueProducts.has(product.url)) {
-      uniqueProducts.set(
-        product.url,
-        product
-      );
-    }
-  }
-
-  return Array.from(uniqueProducts.values());
+  await sql`
+    ALTER TABLE found_items
+    ADD COLUMN IF NOT EXISTS category TEXT;
+  `;
 }
