@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { ensureSchema, Watch } from "../../../lib/db";
-import { buildSearchUrl, scrapeSearchPage } from "../../../lib/scraper";
+import {
+  buildSearchUrl,
+  scrapeSearchPage,
+} from "../../../lib/scraper";
 import { sendTelegramMessage } from "../../../lib/telegram";
 
-export const maxDuration = 60; // vteřin, ať má scan čas na víc watchů
+export const maxDuration = 60;
 
 function isAuthorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
 
-  if (!secret) return true;
+  if (!secret) {
+    return true;
+  }
 
   const header = req.headers.get("authorization") ?? "";
 
@@ -20,13 +25,13 @@ export async function POST(req: NextRequest) {
   return runScan(req);
 }
 
-// GET taky funguje, ať to jde otestovat rovnou z prohlížeče (s ?secret=...)
 export async function GET(req: NextRequest) {
   return runScan(req);
 }
 
 async function runScan(req: NextRequest) {
-  const secretParam = req.nextUrl.searchParams.get("secret");
+  const secretParam =
+    req.nextUrl.searchParams.get("secret");
 
   const authorized =
     isAuthorized(req) ||
@@ -42,12 +47,14 @@ async function runScan(req: NextRequest) {
 
   await ensureSchema();
 
-  // Aktuální vyhledávání na OdKarla používá parametr ?q=
   const template =
     process.env.SEARCH_URL_TEMPLATE ??
-    "https://www.odkarla.cz/vyhledavani-old?q={query}"
+    "https://www.odkarla.cz/vyhledavani-old?q={query}";
 
-  const watchesRes = await sql`SELECT * FROM watches;`;
+  const watchesRes = await sql`
+    SELECT * FROM watches;
+  `;
+
   const watches = watchesRes.rows as Watch[];
 
   const summary: Record<string, unknown>[] = [];
@@ -59,10 +66,12 @@ async function runScan(req: NextRequest) {
         watch.keyword
       );
 
+      // POZOR: scraper nyní vyžaduje URL + hledaný výraz
       const products = await scrapeSearchPage(
-  searchUrl,
-  watch.keyword
-);
+        searchUrl,
+        watch.keyword
+      );
+
       let newCount = 0;
       let priceDropCount = 0;
 
@@ -74,7 +83,6 @@ async function runScan(req: NextRequest) {
         `;
 
         if (existing.rowCount === 0) {
-          // Nová položka odpovídající hledanému výrazu
           await sql`
             INSERT INTO found_items
               (
