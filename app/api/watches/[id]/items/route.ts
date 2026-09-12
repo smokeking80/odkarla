@@ -3,6 +3,8 @@ import { sql } from "@vercel/postgres";
 import { ensureSchema } from "../../../../../lib/db";
 import { scoreProduct } from "../../../../../lib/scraper";
 
+export const dynamic = "force-dynamic";
+
 type ItemRow = {
   id: number;
   product_url: string;
