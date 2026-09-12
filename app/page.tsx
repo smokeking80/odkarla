@@ -12,6 +12,7 @@ type Watch = {
 
 type Item = {
   id: number;
+  watch_id: number;
   product_url: string;
   name: string;
   first_price: number | null;
