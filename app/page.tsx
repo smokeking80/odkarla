@@ -189,10 +189,19 @@ function WatchCard({
                 ) : (
                   underTarget.map((item) => (
                     <ProductItem
-                      key={item.id}
-                      item={item}
-                      targetPrice={watch.max_price}
-                    />
+  key={item.id}
+  item={item}
+  targetPrice={watch.max_price}
+  onRemoved={(itemId) => {
+    setItems((current) =>
+      current
+        ? current.filter(
+            (product) => product.id !== itemId
+          )
+        : current
+    );
+  }}
+/>
                   ))
                 )}
               </div>
