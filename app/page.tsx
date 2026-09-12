@@ -272,6 +272,32 @@ function ProductItem({
     currentPrice !== null &&
     currentPrice < item.first_price;
 
+  async function removeItem() {
+    if (
+      !confirm(
+        `Odstranit položku "${item.name}"?`
+      )
+    ) {
+      return;
+    }
+
+    const res = await fetch(
+      `/api/watches/${item.watch_id}/items/${item.id}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!res.ok) {
+      alert(
+        "Položku se nepodařilo odstranit."
+      );
+      return;
+    }
+
+    onRemoved(item.id);
+  }
+
   return (
     <div
       className="item"
@@ -282,7 +308,7 @@ function ProductItem({
         gap: 16,
       }}
     >
-      <div>
+      <div style={{ flex: 1 }}>
         <a
           href={item.product_url}
           target="_blank"
@@ -320,6 +346,14 @@ function ProductItem({
           ? `${currentPrice} Kč`
           : "Cena neznámá"}
       </span>
+
+      <button
+        className="secondary"
+        onClick={removeItem}
+        title="Odstranit položku"
+      >
+        🗑
+      </button>
     </div>
   );
 }
