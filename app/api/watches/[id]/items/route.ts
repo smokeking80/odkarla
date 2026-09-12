@@ -3,6 +3,18 @@ import { sql } from "@vercel/postgres";
 import { ensureSchema } from "../../../../../lib/db";
 import { scoreProduct } from "../../../../../lib/scraper";
 
+type ItemRow = {
+  id: number;
+  product_url: string;
+  name: string;
+  first_price: number | null;
+  last_price: number | null;
+  first_seen_at: string;
+  last_checked_at: string;
+  last_notified_at: string | null;
+  keyword: string;
+};
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
@@ -35,23 +47,27 @@ export async function GET(
     WHERE found_items.watch_id = ${id};
   `;
 
-  const items = result.rows.map((item) => ({
-    ...item,
-    relevance_score: scoreProduct(
-      item.name as string,
-      item.keyword as string
-    ),
-  }));
+  const items = result.rows as ItemRow[];
 
   items.sort((a, b) => {
-    // 1. Nejdřív relevance
-    if (b.relevance_score !== a.relevance_score) {
-      return b.relevance_score - a.relevance_score;
+    // 1. Nejdřív relevance produktu
+    const scoreA = scoreProduct(
+      a.name,
+      a.keyword
+    );
+
+    const scoreB = scoreProduct(
+      b.name,
+      b.keyword
+    );
+
+    if (scoreB !== scoreA) {
+      return scoreB - scoreA;
     }
 
     // 2. Při stejné relevanci nejdražší první
-    const priceA = a.last_price as number | null;
-    const priceB = b.last_price as number | null;
+    const priceA = a.last_price;
+    const priceB = b.last_price;
 
     if (priceA === null && priceB === null) {
       return 0;
