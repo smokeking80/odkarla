@@ -6,246 +6,181 @@ export type ScrapedProduct = {
   price: number | null;
 };
 
-const BASE_URL = "https://www.odkarla.cz";
-
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-function parsePrice(text: string): number | null {
-  const normalized = text
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const match = normalized.match(/(\d[\d\s]*)\s*Kč/i);
-
-  if (!match) {
-    return null;
-  }
-
-  const value = parseInt(
-    match[1].replace(/\s/g, ""),
-    10
-  );
-
-  return Number.isFinite(value) ? value : null;
-}
-
-function normalizeUrl(href: string): string | null {
-  try {
-    const url = new URL(href, BASE_URL);
-
-    if (
-      url.hostname !== "www.odkarla.cz" &&
-      url.hostname !== "odkarla.cz"
-    ) {
-      return null;
-    }
-
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-function normalizeText(text: string): string {
-  return text
+function normalizeText(value: string): string {
+  return value
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function matchesKeyword(
-  productName: string,
-  keyword: string
-): boolean {
+function matchesKeyword(productName: string, keyword: string): boolean {
   const normalizedName = normalizeText(productName);
   const normalizedKeyword = normalizeText(keyword);
 
-  if (!normalizedKeyword) {
-    return true;
-  }
+  if (!normalizedKeyword) return true;
 
   const words = normalizedKeyword
     .split(" ")
     .filter(Boolean);
-
-  /*
-   * KAŽDÉ SLOVO MUSÍ BÝT PŘÍMO V NÁZVU PRODUKTU.
-   *
-   * iphone
-   * -> "Pouzdro pro iPhone 15"       ano
-   * -> "Tabletové pero Bopomofo"     ne
-   *
-   * ninja blast
-   * -> "Ninja Blast přenosný mixér"  ano
-   * -> "Ninja mixér"                 ne
-   */
 
   return words.every((word) =>
     normalizedName.includes(word)
   );
 }
 
-export async function scrapeSearchPage(
-  url: string,
-  keyword: string
-): Promise<ScrapedProduct[]> {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": USER_AGENT,
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
-      "Cache-Control": "no-cache",
-    },
-    cache: "no-store",
-  });
+/**
+ * Slova, která typicky označují příslušenství.
+ *
+ * Použijí se pouze tehdy, když samotný hledaný výraz
+ * není hledáním příslušenství.
+ */
+const ACCESSORY_WORDS = [
+  "pouzdro",
+  "pouzdra",
+  "kryt",
+  "kryty",
+  "obal",
+  "obaly",
+  "sklo",
+  "folie",
+  "fólie",
+  "ochranne sklo",
+  "ochranna folie",
+  "ochranné sklo",
+  "ochranná fólie",
+  "drzak",
+  "držák",
+  "drzaky",
+  "držáky",
+  "kabel",
+  "kabely",
+  "nabijecka",
+  "nabíječka",
+  "nabijecky",
+  "nabíječky",
+  "adapter",
+  "adaptér",
+  "adaptery",
+  "adaptéry",
+  "stylus",
+  "pero",
+  "selfie tyc",
+  "selfie tyč",
+  "stojan",
+  "stojany",
+  "dock",
+  "dokovaci",
+  "dokovací",
+  "powerbanka",
+  "powerbanky",
+  "baterie",
+  "reminek",
+  "řemínek",
+  "reminky",
+  "řemínky",
+  "prislusenstvi",
+  "příslušenství",
+];
 
-  if (!res.ok) {
-    throw new Error(
-      `Fetch ${url} selhal. HTTP ${res.status}`
-    );
+function containsAccessoryWord(name: string): boolean {
+  const normalizedName = normalizeText(name);
+
+  return ACCESSORY_WORDS.some((word) => {
+    const normalizedWord = normalizeText(word);
+
+    return normalizedName.includes(normalizedWord);
+  });
+}
+
+/**
+ * Pokud uživatel hledá přímo příslušenství,
+ * nesmíme ho odfiltrovat.
+ *
+ * Například:
+ *   "iphone kabel"
+ *   "iphone pouzdro"
+ *   "samsung nabijecka"
+ */
+function keywordIsAccessorySearch(keyword: string): boolean {
+  const normalizedKeyword = normalizeText(keyword);
+
+  return ACCESSORY_WORDS.some((word) => {
+    const normalizedWord = normalizeText(word);
+
+    return normalizedKeyword.includes(normalizedWord);
+  });
+}
+
+function extractProductName(
+  $: cheerio.CheerioAPI,
+  element: cheerio.Element
+): string {
+  const link = $(element);
+
+  const title = link.attr("title")?.trim();
+  if (title) {
+    return title;
   }
 
-  const html = await res.text();
+  const imageAlt = link
+    .find("img[alt]")
+    .first()
+    .attr("alt")
+    ?.trim();
 
-  if (!html) {
-    throw new Error(
-      `OdKarla vrátilo prázdné HTML. URL: ${url}`
-    );
+  if (imageAlt) {
+    return imageAlt;
   }
 
-  const $ = cheerio.load(html);
+  const linkText = link
+    .clone()
+    .find("script, style")
+    .remove()
+    .end()
+    .text()
+    .replace(/\s+/g, " ")
+    .trim();
 
-  const seen = new Set<string>();
-  const products: ScrapedProduct[] = [];
+  if (linkText) {
+    return linkText;
+  }
 
-  $('a[href*="~p"]').each((_, el) => {
-    const href = $(el).attr("href");
+  const parent = link.parent();
 
-    if (!href) {
-      return;
-    }
+  const heading = parent
+    .find("h1, h2, h3, h4, h5, h6")
+    .first()
+    .text()
+    .replace(/\s+/g, " ")
+    .trim();
 
-    if (!/~p\d+/i.test(href)) {
-      return;
-    }
+  if (heading) {
+    return heading;
+  }
 
-    const absoluteUrl = normalizeUrl(href);
+  return "";
+}
 
-    if (!absoluteUrl) {
-      return;
-    }
+function extractPrice(text: string): number | null {
+  const match = text.match(
+    /(\d[\d\s]*)\s*Kč/i
+  );
 
-    if (seen.has(absoluteUrl)) {
-      return;
-    }
+  if (!match) {
+    return null;
+  }
 
-    let node = $(el);
-    let name = "";
-    let price: number | null = null;
+  const number = match[1]
+    .replace(/\s/g, "")
+    .replace(",", ".");
 
-    /*
-     * Nejprve zkusíme samotný odkaz.
-     * Na OdKarla bývá název produktu právě zde.
-     */
-    const title =
-      $(el)
-        .attr("title")
-        ?.replace(/\s+/g, " ")
-        .trim() ?? "";
+  const price = Number(number);
 
-    const imageAlt =
-      $(el)
-        .find("img[alt]")
-        .first()
-        .attr("alt")
-        ?.replace(/\s+/g, " ")
-        .trim() ?? "";
-
-    const linkText =
-      $(el)
-        .text()
-        .replace(/\s+/g, " ")
-        .trim();
-
-    name =
-      title ||
-      imageAlt ||
-      linkText;
-
-    /*
-     * Pokud odkaz sám název nemá,
-     * hledáme heading v jeho rodičích.
-     */
-    for (let i = 0; i < 6; i++) {
-      if (!node.length) {
-        break;
-      }
-
-      if (!name) {
-        const heading =
-          node
-            .find("h1, h2, h3, h4, h5, h6")
-            .first()
-            .text()
-            .replace(/\s+/g, " ")
-            .trim();
-
-        if (heading) {
-          name = heading;
-        }
-      }
-
-      if (price === null) {
-        const text = node
-          .text()
-          .replace(/\s+/g, " ")
-          .trim();
-
-        price = parsePrice(text);
-      }
-
-      if (name && price !== null) {
-        break;
-      }
-
-      node = node.parent();
-    }
-
-    name = name
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!name || name.length < 2) {
-      return;
-    }
-
-    /*
-     * TADY JE HLAVNÍ OPRAVA:
-     *
-     * Kontrolujeme pouze název produktu.
-     * Ne celou kartu.
-     */
-    if (!matchesKeyword(name, keyword)) {
-      return;
-    }
-
-    seen.add(absoluteUrl);
-
-    products.push({
-      url: absoluteUrl,
-      name,
-      price,
-    });
-  });
-
-  return products;
+  return Number.isFinite(price)
+    ? price
+    : null;
 }
 
 export function buildSearchUrl(
@@ -254,6 +189,106 @@ export function buildSearchUrl(
 ): string {
   return template.replace(
     "{query}",
-    encodeURIComponent(keyword.trim())
+    encodeURIComponent(keyword)
   );
+}
+
+export async function scrapeSearchPage(
+  url: string,
+  keyword: string
+): Promise<ScrapedProduct[]> {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `OdKarla odpověděla HTTP ${response.status}`
+    );
+  }
+
+  const html = await response.text();
+  const $ = cheerio.load(html);
+
+  const products: ScrapedProduct[] = [];
+
+  const accessorySearch =
+    keywordIsAccessorySearch(keyword);
+
+  $('a[href*="~p"]').each((_, element) => {
+    const link = $(element);
+    const href = link.attr("href");
+
+    if (!href) return;
+
+    const absoluteUrl = new URL(
+      href,
+      url
+    ).toString();
+
+    const name = extractProductName(
+      $,
+      element
+    );
+
+    if (!name) return;
+
+    // Nejdříve musí odpovídat hledanému výrazu.
+    if (!matchesKeyword(name, keyword)) {
+      return;
+    }
+
+    // Pokud uživatel hledá příslušenství,
+    // necháme příslušenství normálně projít.
+    //
+    // Např. "iphone kabel" -> kabely NEVYŘAZUJEME.
+    //
+    // Pokud ale hledá samotný telefon,
+    // vyřadíme typické příslušenství.
+    if (
+      !accessorySearch &&
+      containsAccessoryWord(name)
+    ) {
+      return;
+    }
+
+    const cardText = link
+      .parent()
+      .parent()
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const price =
+      extractPrice(cardText) ??
+      extractPrice(name);
+
+    products.push({
+      url: absoluteUrl,
+      name,
+      price,
+    });
+  });
+
+  // OdKarla může některé produkty vrátit vícekrát
+  // přes různé odkazy. Odstraníme duplicity podle URL.
+  const uniqueProducts =
+    new Map<string, ScrapedProduct>();
+
+  for (const product of products) {
+    if (!uniqueProducts.has(product.url)) {
+      uniqueProducts.set(
+        product.url,
+        product
+      );
+    }
+  }
+
+  return Array.from(uniqueProducts.values());
 }
