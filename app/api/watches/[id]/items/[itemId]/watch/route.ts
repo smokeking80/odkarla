@@ -43,8 +43,13 @@ export async function PATCH(
     );
   }
 
-  return NextResponse.json({
-    success: true,
-    watch_price: result.rows[0].watch_price,
-  });
+  console.log(
+  "WATCH PRICE UPDATE:",
+  result.rows[0]
+);
+
+return NextResponse.json({
+  success: true,
+  watch_price: result.rows[0].watch_price,
+});
 }
