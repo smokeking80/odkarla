@@ -49,14 +49,6 @@ function normalizeUrl(href: string): string | null {
   }
 }
 
-/**
- * Normalizuje text pro porovnávání.
- *
- * Např.:
- * "Ninja Blast – přenosný mixér"
- * ->
- * "ninja blast prenosny mixer"
- */
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
@@ -67,35 +59,30 @@ function normalizeText(text: string): string {
     .trim();
 }
 
-/**
- * Kontroluje, zda produkt odpovídá hledanému výrazu.
- *
- * Každé slovo hledaného výrazu musí být v názvu produktu.
- *
- * "ninja blast"
- * -> musí obsahovat "ninja" i "blast"
- *
- * "iphone"
- * -> musí obsahovat "iphone"
- */
 function matchesKeyword(
-  productName: string,
+  name: string,
+  cardText: string,
   keyword: string
 ): boolean {
-  const normalizedName = normalizeText(productName);
   const normalizedKeyword = normalizeText(keyword);
 
   if (!normalizedKeyword) {
     return true;
   }
 
+  const normalizedName = normalizeText(name);
+  const normalizedCard = normalizeText(cardText);
+
   const words = normalizedKeyword
     .split(" ")
     .filter(Boolean);
 
-  return words.every((word) =>
-    normalizedName.includes(word)
-  );
+  return words.every((word) => {
+    return (
+      normalizedName.includes(word) ||
+      normalizedCard.includes(word)
+    );
+  });
 }
 
 export async function scrapeSearchPage(
@@ -123,7 +110,7 @@ export async function scrapeSearchPage(
 
   if (!html) {
     throw new Error(
-      `OdKarla vrátil prázdné HTML. URL: ${url}`
+      `OdKarla vrátilo prázdné HTML. URL: ${url}`
     );
   }
 
@@ -157,9 +144,12 @@ export async function scrapeSearchPage(
 
     let name = "";
     let price: number | null = null;
+    let cardText = "";
 
-    // Projdeme několik úrovní rodičů,
-    // protože název a cena jsou v kartě produktu.
+    /*
+     * Hledáme produktovou kartu.
+     * Procházíme několik rodičů odkazu.
+     */
     for (let i = 0; i < 8; i++) {
       if (!node.length) {
         break;
@@ -170,40 +160,43 @@ export async function scrapeSearchPage(
         .replace(/\s+/g, " ")
         .trim();
 
-      if (price === null) {
-        price = parsePrice(text);
+      if (text.length > cardText.length) {
+        cardText = text;
       }
 
+      /*
+       * Název vezmeme přímo z odkazu,
+       * jeho title, obrázku nebo textu.
+       */
       if (!name) {
         const title =
           $(el).attr("title")?.trim() ?? "";
 
-        const alt =
+        const imageAlt =
           $(el)
             .find("img[alt]")
             .first()
             .attr("alt")
             ?.trim() ?? "";
 
-        const heading =
-          node
-            .find("h1, h2, h3, h4, h5, h6")
-            .first()
-            .text()
-            .replace(/\s+/g, " ")
-            .trim();
-
-        const linkText =
+        const directText =
           $(el)
+            .clone()
+            .children()
+            .remove()
+            .end()
             .text()
             .replace(/\s+/g, " ")
             .trim();
 
         name =
           title ||
-          heading ||
-          alt ||
-          linkText;
+          imageAlt ||
+          directText;
+      }
+
+      if (price === null) {
+        price = parsePrice(text);
       }
 
       if (name && price !== null) {
@@ -211,6 +204,29 @@ export async function scrapeSearchPage(
       }
 
       node = node.parent();
+    }
+
+    /*
+     * Záložní získání názvu.
+     */
+    if (!name) {
+      name = $(el)
+        .text()
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    /*
+     * Pokud je název pořád prázdný,
+     * zkusíme první smysluplný heading v kartě.
+     */
+    if (!name && node.length) {
+      name = node
+        .find("h1, h2, h3, h4, h5, h6")
+        .first()
+        .text()
+        .replace(/\s+/g, " ")
+        .trim();
     }
 
     name = name
@@ -221,9 +237,21 @@ export async function scrapeSearchPage(
       return;
     }
 
-    // DŮLEŽITÉ:
-    // Produkt musí skutečně odpovídat hledanému výrazu.
-    if (!matchesKeyword(name, keyword)) {
+    /*
+     * FILTR RELEVANCE
+     *
+     * Např.:
+     * "iphone" -> musí být v názvu nebo kartě
+     * "ninja blast" -> musí být obě slova
+     * "sony" -> musí být sony
+     */
+    if (
+      !matchesKeyword(
+        name,
+        cardText,
+        keyword
+      )
+    ) {
       return;
     }
 
