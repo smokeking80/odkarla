@@ -1,0 +1,16 @@
+name: Scan OdKarla.cz
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Zavolat /api/scan na Vercelu
+        run: |
+          curl -sS -X POST "${{ secrets.VERCEL_URL }}/api/scan" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP status: %{http_code}\n"
