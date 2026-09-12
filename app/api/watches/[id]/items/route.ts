@@ -32,9 +32,10 @@ export async function GET(
 
   const result = await sql`
     SELECT
-      found_items.id,
-      found_items.product_url,
-      found_items.name,
+  found_items.id,
+  found_items.watch_id,
+  found_items.product_url,
+  found_items.name,
       found_items.first_price,
       found_items.last_price,
       found_items.first_seen_at,
