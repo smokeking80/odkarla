@@ -86,7 +86,8 @@ export async function POST(req: NextRequest) {
     );
 
     /*
-     * 3. Uložíme první nalezené produkty.
+     * 3. Uložíme první nalezené produkty
+     *    včetně dalších údajů z detailu produktu.
      */
     for (const product of products) {
       await sql`
@@ -95,6 +96,11 @@ export async function POST(req: NextRequest) {
             watch_id,
             product_url,
             name,
+            brand,
+            model,
+            ean,
+            asin,
+            category,
             first_price,
             last_price,
             last_notified_at
@@ -104,6 +110,11 @@ export async function POST(req: NextRequest) {
             ${watch.id},
             ${product.url},
             ${product.name},
+            ${product.brand},
+            ${product.model},
+            ${product.ean},
+            ${product.asin},
+            ${product.category},
             ${product.price},
             ${product.price},
             NULL
