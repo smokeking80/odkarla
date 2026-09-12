@@ -49,8 +49,58 @@ function normalizeUrl(href: string): string | null {
   }
 }
 
+/**
+ * Normalizuje text pro porovnávání.
+ *
+ * Např.:
+ * "Ninja Blast – přenosný mixér"
+ * ->
+ * "ninja blast prenosny mixer"
+ */
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Kontroluje, zda produkt odpovídá hledanému výrazu.
+ *
+ * Každé slovo hledaného výrazu musí být v názvu produktu.
+ *
+ * "ninja blast"
+ * -> musí obsahovat "ninja" i "blast"
+ *
+ * "iphone"
+ * -> musí obsahovat "iphone"
+ */
+function matchesKeyword(
+  productName: string,
+  keyword: string
+): boolean {
+  const normalizedName = normalizeText(productName);
+  const normalizedKeyword = normalizeText(keyword);
+
+  if (!normalizedKeyword) {
+    return true;
+  }
+
+  const words = normalizedKeyword
+    .split(" ")
+    .filter(Boolean);
+
+  return words.every((word) =>
+    normalizedName.includes(word)
+  );
+}
+
 export async function scrapeSearchPage(
-  url: string
+  url: string,
+  keyword: string
 ): Promise<ScrapedProduct[]> {
   const res = await fetch(url, {
     headers: {
@@ -79,13 +129,10 @@ export async function scrapeSearchPage(
 
   const $ = cheerio.load(html);
 
-  const allLinks = $("a[href]").length;
-  const productLinks = $('a[href*="~p"]').length;
-
   const seen = new Set<string>();
   const products: ScrapedProduct[] = [];
 
-  $("a[href]").each((_, el) => {
+  $('a[href*="~p"]').each((_, el) => {
     const href = $(el).attr("href");
 
     if (!href) {
@@ -107,9 +154,12 @@ export async function scrapeSearchPage(
     }
 
     let node = $(el);
+
     let name = "";
     let price: number | null = null;
 
+    // Projdeme několik úrovní rodičů,
+    // protože název a cena jsou v kartě produktu.
     for (let i = 0; i < 8; i++) {
       if (!node.length) {
         break;
@@ -120,7 +170,7 @@ export async function scrapeSearchPage(
         .replace(/\s+/g, " ")
         .trim();
 
-      if (!price) {
+      if (price === null) {
         price = parsePrice(text);
       }
 
@@ -163,9 +213,17 @@ export async function scrapeSearchPage(
       node = node.parent();
     }
 
-    name = name.replace(/\s+/g, " ").trim();
+    name = name
+      .replace(/\s+/g, " ")
+      .trim();
 
     if (!name || name.length < 2) {
+      return;
+    }
+
+    // DŮLEŽITÉ:
+    // Produkt musí skutečně odpovídat hledanému výrazu.
+    if (!matchesKeyword(name, keyword)) {
       return;
     }
 
@@ -177,30 +235,6 @@ export async function scrapeSearchPage(
       price,
     });
   });
-
-  /*
-   * DŮLEŽITÉ:
-   * Pokud OdKarla neposlalo žádné produkty,
-   * pošleme diagnostiku přímo do odpovědi /api/scan.
-   * Díky tomu ji uvidíme v GitHub Actions.
-   */
-  if (products.length === 0) {
-    const htmlStart = html
-      .replace(/\s+/g, " ")
-      .slice(0, 800);
-
-    throw new Error(
-      [
-        "OdKarla nevrátilo žádné produkty.",
-        `URL=${url}`,
-        `HTTP=${res.status}`,
-        `HTML_LENGTH=${html.length}`,
-        `ALL_LINKS=${allLinks}`,
-        `PRODUCT_LINKS=${productLinks}`,
-        `HTML_START=${htmlStart}`,
-      ].join(" | ")
-    );
-  }
 
   return products;
 }
