@@ -279,6 +279,10 @@ function ProductItem({
 const [watchingPrice, setWatchingPrice] =
   useState(item.watch_price);
 
+useEffect(() => {
+  setWatchingPrice(item.watch_price);
+}, [item.watch_price]);
+
 const [watchingLoading, setWatchingLoading] =
   useState(false);
 
