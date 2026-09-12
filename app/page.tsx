@@ -384,6 +384,22 @@ async function togglePriceWatch() {
           ? `${currentPrice} Kč`
           : "Cena neznámá"}
       </span>
+      <button
+  className="secondary"
+  onClick={togglePriceWatch}
+  disabled={watchingLoading}
+  title={
+    watchingPrice
+      ? "Zrušit hlídání ceny"
+      : "Hlídát změnu ceny"
+  }
+>
+  {watchingLoading
+    ? "…"
+    : watchingPrice
+      ? "🔕"
+      : "🔔"}
+</button>
 
       <button
         className="secondary"
