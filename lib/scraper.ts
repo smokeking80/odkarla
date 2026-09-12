@@ -132,7 +132,10 @@ function extractField(
           )
           .trim();
 
-        if (value && normalizeText(value) !== label) {
+        if (
+          value &&
+          normalizeText(value) !== label
+        ) {
           result = value;
         }
 
@@ -222,9 +225,9 @@ async function scrapeProductDetail(
     const asin =
       extractField($, ["ASIN"]);
 
-    const category = extractCategory($);
+    const category =
+      extractCategory($);
 
-    // Záložní hledání EAN/ASIN přímo v textu stránky.
     const eanMatch = bodyText.match(
       /\bEAN\s*:?\s*(\d{8,14})\b/i
     );
@@ -256,14 +259,29 @@ async function scrapeProductDetail(
   }
 }
 
+function createSearchSlug(
+  keyword: string
+): string {
+  return normalizeText(keyword)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function buildSearchUrl(
   template: string,
   keyword: string
 ): string {
-  return template.replace(
-    "{query}",
-    encodeURIComponent(keyword)
-  );
+  const slug = createSearchSlug(keyword);
+
+  return template
+    .replace(
+      "{query}",
+      encodeURIComponent(keyword)
+    )
+    .replace(
+      "{slug}",
+      slug
+    );
 }
 
 export async function scrapeSearchPage(
@@ -351,12 +369,11 @@ export async function scrapeSearchPage(
   const uniqueList =
     Array.from(uniqueProducts.values());
 
-  // Z detailu každého produktu získáme další údaje.
-  // Děláme to postupně, aby OdKarla nedostala
-  // najednou desítky požadavků.
   for (const product of uniqueList) {
     const details =
-      await scrapeProductDetail(product.url);
+      await scrapeProductDetail(
+        product.url
+      );
 
     product.brand = details.brand;
     product.model = details.model;
