@@ -18,6 +18,7 @@ type Item = {
   first_price: number | null;
   last_price: number | null;
   first_seen_at: string;
+  watch_price: boolean;
 };
 
 function WatchCard({
