@@ -378,9 +378,25 @@ export async function scrapeSearchPage(
   }
 
   const uniqueProducts =
-    new Map<string, ScrapedProduct>();
+  new Map<string, ScrapedProduct>();
 
-  await Promise.all(
+for (const product of products) {
+  if (!uniqueProducts.has(product.url)) {
+    uniqueProducts.set(
+      product.url,
+      product
+    );
+  }
+}
+
+const uniqueList =
+  Array.from(uniqueProducts.values());
+
+console.error(
+  `ODKARLA DEBUG: celkem unikátních produktů=${uniqueList.length}`
+);
+
+await Promise.all(
   uniqueList.map(async (product) => {
     const details =
       await scrapeProductDetail(
@@ -394,3 +410,6 @@ export async function scrapeSearchPage(
     product.category = details.category;
   })
 );
+
+return uniqueList;
+}
