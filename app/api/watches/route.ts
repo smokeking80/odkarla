@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   try {
     const template =
       process.env.SEARCH_URL_TEMPLATE ??
-      "https://www.odkarla.cz/vyhledavani-old?q={query}";
+      "https://www.odkarla.cz/{slug}";
 
     const searchUrl = buildSearchUrl(
       template,
