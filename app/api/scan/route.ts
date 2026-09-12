@@ -45,7 +45,7 @@ async function runScan(req: NextRequest) {
   // Aktuální vyhledávání na OdKarla používá parametr ?q=
   const template =
     process.env.SEARCH_URL_TEMPLATE ??
-    "https://www.odkarla.cz/vyhledavani?q={query}";
+    "https://www.odkarla.cz/vyhledavani-old?q={query}"
 
   const watchesRes = await sql`SELECT * FROM watches;`;
   const watches = watchesRes.rows as Watch[];
