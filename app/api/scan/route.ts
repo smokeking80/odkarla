@@ -59,8 +59,10 @@ async function runScan(req: NextRequest) {
         watch.keyword
       );
 
-      const products = await scrapeSearchPage(searchUrl);
-
+      const products = await scrapeSearchPage(
+  searchUrl,
+  watch.keyword
+);
       let newCount = 0;
       let priceDropCount = 0;
 
