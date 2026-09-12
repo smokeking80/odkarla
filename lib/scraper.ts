@@ -305,9 +305,15 @@ export async function scrapeSearchPage(
   }
 
   const html = await response.text();
-  const $ = cheerio.load(html);
+const $ = cheerio.load(html);
 
-  const products: ScrapedProduct[] = [];
+const productLinks = $('a[href*="~p"]');
+
+console.error(
+  `ODKARLA DEBUG: URL=${url}, produktových odkazů=${productLinks.length}`
+);
+
+const products: ScrapedProduct[] = [];
 
   $('a[href*="~p"]').each((_, element) => {
     const link = $(element);
