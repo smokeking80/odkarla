@@ -89,5 +89,12 @@ watches.keyword
     return priceB - priceA;
   });
 
-  return NextResponse.json(items);
-}
+  return NextResponse.json({
+  items,
+  debug: items.map((item) => ({
+    id: item.id,
+    name: item.name,
+    watch_price: item.watch_price,
+  })),
+});
+  }
