@@ -288,77 +288,94 @@ export async function scrapeSearchPage(
   url: string,
   keyword: string
 ): Promise<ScrapedProduct[]> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml",
-    },
-    cache: "no-store",
-  });
+  const products: ScrapedProduct[] = [];
 
-  if (!response.ok) {
-    throw new Error(
-      `OdKarla odpověděla HTTP ${response.status}`
-    );
-  }
+  for (let page = 1; page <= 5; page++) {
+    let pageUrl = url;
 
-  const html = await response.text();
-const $ = cheerio.load(html);
-
-const productLinks = $('a[href*="~p"]');
-
-console.error(
-  `ODKARLA DEBUG: URL=${url}, produktových odkazů=${productLinks.length}`
-);
-
-const products: ScrapedProduct[] = [];
-
-  $('a[href*="~p"]').each((_, element) => {
-    const link = $(element);
-    const href = link.attr("href");
-
-    if (!href) return;
-
-    const absoluteUrl = new URL(
-      href,
-      url
-    ).toString();
-
-    const name = extractProductName(
-      $,
-      element
-    );
-
-    if (!name) return;
-
-    if (!matchesKeyword(name, keyword)) {
-      return;
+    if (page > 1) {
+      const separator = url.includes("?") ? "&" : "?";
+      pageUrl = `${url}${separator}page=${page}`;
     }
 
-    const cardText = link
-      .parent()
-      .parent()
-      .text()
-      .replace(/\s+/g, " ")
-      .trim();
+    console.error(
+      `ODKARLA DEBUG: načítám stránku ${page}: ${pageUrl}`
+    );
 
-    const price =
-      extractPrice(cardText) ??
-      extractPrice(name);
-
-    products.push({
-      url: absoluteUrl,
-      name,
-      price,
-      brand: null,
-      model: null,
-      ean: null,
-      asin: null,
-      category: null,
+    const response = await fetch(pageUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml",
+      },
+      cache: "no-store",
     });
-  });
+
+    if (!response.ok) {
+      throw new Error(
+        `OdKarla odpověděla HTTP ${response.status}`
+      );
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    const productLinks = $('a[href*="~p"]');
+
+    console.error(
+      `ODKARLA DEBUG: stránka ${page}, produktových odkazů=${productLinks.length}`
+    );
+
+    if (productLinks.length === 0) {
+      break;
+    }
+
+    productLinks.each((_, element) => {
+      const link = $(element);
+      const href = link.attr("href");
+
+      if (!href) return;
+
+      const absoluteUrl = new URL(
+        href,
+        pageUrl
+      ).toString();
+
+      const name = extractProductName(
+        $,
+        element
+      );
+
+      if (!name) return;
+
+      if (!matchesKeyword(name, keyword)) {
+        return;
+      }
+
+      const cardText = link
+        .parent()
+        .parent()
+        .text()
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const price =
+        extractPrice(cardText) ??
+        extractPrice(name);
+
+      products.push({
+        url: absoluteUrl,
+        name,
+        price,
+        brand: null,
+        model: null,
+        ean: null,
+        asin: null,
+        category: null,
+      });
+    });
+  }
 
   const uniqueProducts =
     new Map<string, ScrapedProduct>();
@@ -374,6 +391,10 @@ const products: ScrapedProduct[] = [];
 
   const uniqueList =
     Array.from(uniqueProducts.values());
+
+  console.error(
+    `ODKARLA DEBUG: celkem unikátních produktů=${uniqueList.length}`
+  );
 
   for (const product of uniqueList) {
     const details =
