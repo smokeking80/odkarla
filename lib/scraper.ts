@@ -363,7 +363,10 @@ export async function scrapeSearchPage(
       const price =
         extractPrice(cardText) ??
         extractPrice(name);
-
+     console.error(
+  `ODKARLA PRODUKT: ${name}`
+);
+      
       products.push({
         url: absoluteUrl,
         name,
