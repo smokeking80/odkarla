@@ -32,20 +32,23 @@ function WatchCard({
   const [items, setItems] = useState<Item[] | null>(null);
 
   async function toggle() {
-    if (!open && items === null) {
-      const res = await fetch(
-        `/api/watches/${watch.id}/items`
-      );
-
-      if (!res.ok) {
-        setItems([]);
-      } else {
-        setItems(await res.json());
+  if (!open) {
+    const res = await fetch(
+      `/api/watches/${watch.id}/items`,
+      {
+        cache: "no-store",
       }
-    }
+    );
 
-    setOpen(!open);
+    if (!res.ok) {
+      setItems([]);
+    } else {
+      setItems(await res.json());
+    }
   }
+
+  setOpen(!open);
+}
 
   async function remove() {
     if (
