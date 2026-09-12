@@ -2,10 +2,6 @@ import { sql } from "@vercel/postgres";
 
 let initialized = false;
 
-/**
- * Vytvoří tabulky, pokud ještě neexistují. Volá se na začátku každé
- * API route, je to levné (IF NOT EXISTS) a nemusíš řešit ruční migrace.
- */
 export async function ensureSchema() {
   if (initialized) return;
 
