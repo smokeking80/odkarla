@@ -18,32 +18,18 @@ function parsePrice(text: string): number | null {
     .replace(/\s+/g, " ")
     .trim();
 
-  // Např.:
-  // 79 Kč
-  // od 79 Kč
-  // 1 299 Kč
-  // 12 999 Kč
-  const matches = [
-    /(?:od\s+)?(\d[\d\s]*)\s*Kč/i,
-    /(\d[\d\s]*)\s*Kč/i,
-  ];
+  const match = normalized.match(/(\d[\d\s]*)\s*Kč/i);
 
-  for (const regex of matches) {
-    const match = normalized.match(regex);
-
-    if (!match) continue;
-
-    const value = parseInt(
-      match[1].replace(/\s/g, ""),
-      10
-    );
-
-    if (Number.isFinite(value)) {
-      return value;
-    }
+  if (!match) {
+    return null;
   }
 
-  return null;
+  const value = parseInt(
+    match[1].replace(/\s/g, ""),
+    10
+  );
+
+  return Number.isFinite(value) ? value : null;
 }
 
 function normalizeUrl(href: string): string | null {
@@ -63,89 +49,38 @@ function normalizeUrl(href: string): string | null {
   }
 }
 
-function extractProductId(url: string): string | null {
-  const match = url.match(/~p(\d+)/i);
-
-  if (!match) {
-    return null;
-  }
-
-  return match[1];
-}
-
-function cleanName(text: string): string {
-  return text
-    .replace(/\s+/g, " ")
-    .replace(/\s+\(\d+\+\?\)\s*$/, "")
-    .trim();
-}
-
 export async function scrapeSearchPage(
   url: string
 ): Promise<ScrapedProduct[]> {
-  console.log("ODKARLA URL:", url);
-
   const res = await fetch(url, {
     headers: {
       "User-Agent": USER_AGENT,
       Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
       "Cache-Control": "no-cache",
-      Pragma: "no-cache",
     },
     cache: "no-store",
   });
 
-  console.log("ODKARLA STATUS:", res.status);
-  console.log(
-    "ODKARLA CONTENT-TYPE:",
-    res.headers.get("content-type")
-  );
-
   if (!res.ok) {
     throw new Error(
-      `Fetch ${url} selhal se stavem ${res.status}`
+      `Fetch ${url} selhal. HTTP ${res.status}`
     );
   }
 
   const html = await res.text();
 
-  console.log(
-    "ODKARLA HTML LENGTH:",
-    html.length
-  );
-
   if (!html) {
     throw new Error(
-      "OdKarla vrátil prázdnou HTML stránku."
+      `OdKarla vrátil prázdné HTML. URL: ${url}`
     );
   }
 
   const $ = cheerio.load(html);
 
   const allLinks = $("a[href]").length;
-
   const productLinks = $('a[href*="~p"]').length;
-
-  console.log(
-    "ODKARLA ALL LINKS:",
-    allLinks
-  );
-
-  console.log(
-    "ODKARLA PRODUCT LINKS:",
-    productLinks
-  );
-
-  // Pomocná diagnostika:
-  // Pokud OdKarla vrací jinou stránku, uvidíme její začátek v logu.
-  console.log(
-    "ODKARLA HTML START:",
-    html
-      .replace(/\s+/g, " ")
-      .slice(0, 500)
-  );
 
   const seen = new Set<string>();
   const products: ScrapedProduct[] = [];
@@ -157,17 +92,13 @@ export async function scrapeSearchPage(
       return;
     }
 
-    const absoluteUrl = normalizeUrl(href);
-
-    if (!absoluteUrl) {
+    if (!/~p\d+/i.test(href)) {
       return;
     }
 
-    const productId = extractProductId(
-      absoluteUrl
-    );
+    const absoluteUrl = normalizeUrl(href);
 
-    if (!productId) {
+    if (!absoluteUrl) {
       return;
     }
 
@@ -175,30 +106,29 @@ export async function scrapeSearchPage(
       return;
     }
 
-    let current = $(el);
-
+    let node = $(el);
     let name = "";
     let price: number | null = null;
 
-    // Projdeme několik úrovní DOM nahoru.
-    // Produktová karta bývá rodičem odkazu.
-    for (let level = 0; level < 8; level++) {
-      if (!current.length) {
+    for (let i = 0; i < 8; i++) {
+      if (!node.length) {
         break;
       }
 
-      const cardText = current
+      const text = node
         .text()
         .replace(/\s+/g, " ")
         .trim();
 
+      if (!price) {
+        price = parsePrice(text);
+      }
+
       if (!name) {
         const title =
-          $(el)
-            .attr("title")
-            ?.trim() ?? "";
+          $(el).attr("title")?.trim() ?? "";
 
-        const imageAlt =
+        const alt =
           $(el)
             .find("img[alt]")
             .first()
@@ -206,19 +136,15 @@ export async function scrapeSearchPage(
             ?.trim() ?? "";
 
         const heading =
-          current
+          node
             .find("h1, h2, h3, h4, h5, h6")
             .first()
             .text()
             .replace(/\s+/g, " ")
             .trim();
 
-        const directText =
+        const linkText =
           $(el)
-            .clone()
-            .children()
-            .remove()
-            .end()
             .text()
             .replace(/\s+/g, " ")
             .trim();
@@ -226,30 +152,18 @@ export async function scrapeSearchPage(
         name =
           title ||
           heading ||
-          imageAlt ||
-          directText;
-      }
-
-      if (price === null) {
-        price = parsePrice(cardText);
+          alt ||
+          linkText;
       }
 
       if (name && price !== null) {
         break;
       }
 
-      current = current.parent();
+      node = node.parent();
     }
 
-    // Poslední pokus o získání názvu.
-    if (!name) {
-      name = $(el)
-        .text()
-        .replace(/\s+/g, " ")
-        .trim();
-    }
-
-    name = cleanName(name);
+    name = name.replace(/\s+/g, " ").trim();
 
     if (!name || name.length < 2) {
       return;
@@ -264,15 +178,27 @@ export async function scrapeSearchPage(
     });
   });
 
-  console.log(
-    "ODKARLA PRODUCTS FOUND:",
-    products.length
-  );
+  /*
+   * DŮLEŽITÉ:
+   * Pokud OdKarla neposlalo žádné produkty,
+   * pošleme diagnostiku přímo do odpovědi /api/scan.
+   * Díky tomu ji uvidíme v GitHub Actions.
+   */
+  if (products.length === 0) {
+    const htmlStart = html
+      .replace(/\s+/g, " ")
+      .slice(0, 800);
 
-  if (products.length > 0) {
-    console.log(
-      "ODKARLA FIRST PRODUCT:",
-      JSON.stringify(products[0])
+    throw new Error(
+      [
+        "OdKarla nevrátilo žádné produkty.",
+        `URL=${url}`,
+        `HTTP=${res.status}`,
+        `HTML_LENGTH=${html.length}`,
+        `ALL_LINKS=${allLinks}`,
+        `PRODUCT_LINKS=${productLinks}`,
+        `HTML_START=${htmlStart}`,
+      ].join(" | ")
     );
   }
 
