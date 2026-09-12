@@ -60,29 +60,35 @@ function normalizeText(text: string): string {
 }
 
 function matchesKeyword(
-  name: string,
-  cardText: string,
+  productName: string,
   keyword: string
 ): boolean {
+  const normalizedName = normalizeText(productName);
   const normalizedKeyword = normalizeText(keyword);
 
   if (!normalizedKeyword) {
     return true;
   }
 
-  const normalizedName = normalizeText(name);
-  const normalizedCard = normalizeText(cardText);
-
   const words = normalizedKeyword
     .split(" ")
     .filter(Boolean);
 
-  return words.every((word) => {
-    return (
-      normalizedName.includes(word) ||
-      normalizedCard.includes(word)
-    );
-  });
+  /*
+   * KAŽDÉ SLOVO MUSÍ BÝT PŘÍMO V NÁZVU PRODUKTU.
+   *
+   * iphone
+   * -> "Pouzdro pro iPhone 15"       ano
+   * -> "Tabletové pero Bopomofo"     ne
+   *
+   * ninja blast
+   * -> "Ninja Blast přenosný mixér"  ano
+   * -> "Ninja mixér"                 ne
+   */
+
+  return words.every((word) =>
+    normalizedName.includes(word)
+  );
 }
 
 export async function scrapeSearchPage(
@@ -141,61 +147,67 @@ export async function scrapeSearchPage(
     }
 
     let node = $(el);
-
     let name = "";
     let price: number | null = null;
-    let cardText = "";
 
     /*
-     * Hledáme produktovou kartu.
-     * Procházíme několik rodičů odkazu.
+     * Nejprve zkusíme samotný odkaz.
+     * Na OdKarla bývá název produktu právě zde.
      */
-    for (let i = 0; i < 8; i++) {
-      if (!node.length) {
-        break;
-      }
+    const title =
+      $(el)
+        .attr("title")
+        ?.replace(/\s+/g, " ")
+        .trim() ?? "";
 
-      const text = node
+    const imageAlt =
+      $(el)
+        .find("img[alt]")
+        .first()
+        .attr("alt")
+        ?.replace(/\s+/g, " ")
+        .trim() ?? "";
+
+    const linkText =
+      $(el)
         .text()
         .replace(/\s+/g, " ")
         .trim();
 
-      if (text.length > cardText.length) {
-        cardText = text;
+    name =
+      title ||
+      imageAlt ||
+      linkText;
+
+    /*
+     * Pokud odkaz sám název nemá,
+     * hledáme heading v jeho rodičích.
+     */
+    for (let i = 0; i < 6; i++) {
+      if (!node.length) {
+        break;
       }
 
-      /*
-       * Název vezmeme přímo z odkazu,
-       * jeho title, obrázku nebo textu.
-       */
       if (!name) {
-        const title =
-          $(el).attr("title")?.trim() ?? "";
-
-        const imageAlt =
-          $(el)
-            .find("img[alt]")
+        const heading =
+          node
+            .find("h1, h2, h3, h4, h5, h6")
             .first()
-            .attr("alt")
-            ?.trim() ?? "";
-
-        const directText =
-          $(el)
-            .clone()
-            .children()
-            .remove()
-            .end()
             .text()
             .replace(/\s+/g, " ")
             .trim();
 
-        name =
-          title ||
-          imageAlt ||
-          directText;
+        if (heading) {
+          name = heading;
+        }
       }
 
       if (price === null) {
+        const text = node
+          .text()
+          .replace(/\s+/g, " ")
+          .trim();
+
         price = parsePrice(text);
       }
 
@@ -204,29 +216,6 @@ export async function scrapeSearchPage(
       }
 
       node = node.parent();
-    }
-
-    /*
-     * Záložní získání názvu.
-     */
-    if (!name) {
-      name = $(el)
-        .text()
-        .replace(/\s+/g, " ")
-        .trim();
-    }
-
-    /*
-     * Pokud je název pořád prázdný,
-     * zkusíme první smysluplný heading v kartě.
-     */
-    if (!name && node.length) {
-      name = node
-        .find("h1, h2, h3, h4, h5, h6")
-        .first()
-        .text()
-        .replace(/\s+/g, " ")
-        .trim();
     }
 
     name = name
@@ -238,20 +227,12 @@ export async function scrapeSearchPage(
     }
 
     /*
-     * FILTR RELEVANCE
+     * TADY JE HLAVNÍ OPRAVA:
      *
-     * Např.:
-     * "iphone" -> musí být v názvu nebo kartě
-     * "ninja blast" -> musí být obě slova
-     * "sony" -> musí být sony
+     * Kontrolujeme pouze název produktu.
+     * Ne celou kartu.
      */
-    if (
-      !matchesKeyword(
-        name,
-        cardText,
-        keyword
-      )
-    ) {
+    if (!matchesKeyword(name, keyword)) {
       return;
     }
 
