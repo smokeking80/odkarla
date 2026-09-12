@@ -7,6 +7,7 @@ import {
 } from "../../../lib/scraper";
 
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   await ensureSchema();
