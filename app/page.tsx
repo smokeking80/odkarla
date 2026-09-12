@@ -144,9 +144,18 @@ function WatchCard({
 
               {allItems.map((item) => (
                 <ProductItem
-                  key={item.id}
-                  item={item}
-                />
+  key={item.id}
+  item={item}
+  onRemoved={(itemId) => {
+    setItems((current) =>
+      current
+        ? current.filter(
+            (product) => product.id !== itemId
+          )
+        : current
+    );
+  }}
+/>
               ))}
             </div>
           ) : (
