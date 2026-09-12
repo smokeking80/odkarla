@@ -271,7 +271,44 @@ function ProductItem({
     item.first_price !== null &&
     currentPrice !== null &&
     currentPrice < item.first_price;
+  
+const [watchingPrice, setWatchingPrice] =
+  useState(item.watch_price);
 
+const [watchingLoading, setWatchingLoading] =
+  useState(false);
+
+async function togglePriceWatch() {
+  setWatchingLoading(true);
+
+  try {
+    const res = await fetch(
+      `/api/watches/${item.watch_id}/items/${item.id}/watch`,
+      {
+        method: "PATCH",
+      }
+    );
+
+    if (!res.ok) {
+      alert(
+        "Nepodařilo se změnit hlídání ceny."
+      );
+      return;
+    }
+
+    const data = await res.json();
+
+    setWatchingPrice(data.watch_price);
+  } catch (error) {
+    console.error(error);
+
+    alert(
+      "Nepodařilo se změnit hlídání ceny."
+    );
+  } finally {
+    setWatchingLoading(false);
+  }
+}
   async function removeItem() {
     if (
       !confirm(
