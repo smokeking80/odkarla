@@ -399,20 +399,4 @@ console.error(
   `ODKARLA DEBUG: celkem unikátních produktů=${uniqueList.length}`
 );
 
-await Promise.all(
-  uniqueList.map(async (product) => {
-    const details =
-      await scrapeProductDetail(
-        product.url
-      );
-
-    product.brand = details.brand;
-    product.model = details.model;
-    product.ean = details.ean;
-    product.asin = details.asin;
-    product.category = details.category;
-  })
-);
-
 return uniqueList;
-}
