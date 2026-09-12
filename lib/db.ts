@@ -28,7 +28,12 @@ export async function ensureSchema() {
       UNIQUE (watch_id, product_url)
     );
   `;
-
+  
+  await sql`
+    ALTER TABLE found_items
+    ADD COLUMN IF NOT EXISTS watch_price BOOLEAN NOT NULL DEFAULT false;
+  `;
+  
   initialized = true;
 }
 
