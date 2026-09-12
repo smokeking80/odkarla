@@ -38,7 +38,7 @@ function matchesKeyword(
   );
 }
 
-function scoreProduct(
+export function scoreProduct(
   productName: string,
   keyword: string
 ): number {
