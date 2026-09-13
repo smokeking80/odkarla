@@ -47,7 +47,19 @@ export async function PATCH(
   "WATCH PRICE UPDATE:",
   result.rows[0]
 );
+  
+const check = await sql`
+  SELECT id, watch_price
+  FROM found_items
+  WHERE id = ${itemId}
+    AND watch_id = ${watchId};
+`;
 
+console.log(
+  "WATCH PRICE AFTER UPDATE:",
+  check.rows[0]
+);
+  
 return NextResponse.json({
   success: true,
   watch_price: result.rows[0].watch_price,
