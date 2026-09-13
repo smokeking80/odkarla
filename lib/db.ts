@@ -58,7 +58,16 @@ await sql`
   ALTER TABLE found_items
   ADD COLUMN IF NOT EXISTS category TEXT;
 `;
-  
+
+  await sql`
+  CREATE TABLE IF NOT EXISTS deleted_items (
+    id SERIAL PRIMARY KEY,
+    watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+    product_url TEXT NOT NULL,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (watch_id, product_url)
+  );
+`;
   initialized = true;
 }
 
