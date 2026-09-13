@@ -269,51 +269,46 @@ function ProductItem({
     useState(false);
 
   async function togglePriceWatch() {
-    if (watchingLoading) {
-      return;
-    }
-
-    setWatchingLoading(true);
-
-    try {
-      const res = await fetch(
-        `/api/watches/${item.watch_id}/items/${item.id}/watch`,
-        {
-          method: "PATCH",
-        }
-      );
-
-      if (!res.ok) {
-        alert(
-          "Nepodařilo se změnit hlídání ceny."
-        );
-        return;
-      }
-
-      const data = await res.json();
-
-      onWatchChanged(
-        item.id,
-        data.watch_price
-      );
-    } catch (error) {
-      console.error(error);
-
-      alert(
-        "Nepodařilo se změnit hlídání ceny."
-      );
-    } finally {
-      setWatchingLoading(false);
-    }
+  if (watchingLoading) {
+    return;
   }
 
-  async function removeItem() {
-    if (
-      !confirm(
-        `Odstranit položku "${item.name}"?`
-      )
-    ) {
+  const desiredWatchPrice = !item.watch_price;
+
+  setWatchingLoading(true);
+
+  try {
+    const res = await fetch(
+      `/api/watches/${item.watch_id}/items/${item.id}/watch`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          watch_price: desiredWatchPrice,
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      alert("Nepodařilo se změnit hlídání ceny.");
       return;
+    }
+
+    const data = await res.json();
+
+    onWatchChanged(
+      item.id,
+      data.watch_price
+    );
+  } catch (error) {
+    console.error(error);
+    alert("Nepodařilo se změnit hlídání ceny.");
+  } finally {
+    setWatchingLoading(false);
+  }
+}
     }
 
     const res = await fetch(
