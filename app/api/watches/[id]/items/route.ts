@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 type ItemRow = {
   id: number;
+  watch_id: number;
   product_url: string;
   name: string;
   first_price: number | null;
@@ -14,8 +15,8 @@ type ItemRow = {
   first_seen_at: string;
   last_checked_at: string;
   last_notified_at: string | null;
-watch_price: boolean;
-keyword: string;
+  watch_price: boolean;
+  keyword: string;
 };
 
 export async function GET(
@@ -35,21 +36,27 @@ export async function GET(
 
   const result = await sql`
     SELECT
-  found_items.id,
-  found_items.watch_id,
-  found_items.product_url,
-  found_items.name,
+      found_items.id,
+      found_items.watch_id,
+      found_items.product_url,
+      found_items.name,
       found_items.first_price,
       found_items.last_price,
       found_items.first_seen_at,
       found_items.last_checked_at,
       found_items.last_notified_at,
-found_items.watch_price,
-watches.keyword
+      found_items.watch_price,
+      watches.keyword
     FROM found_items
     JOIN watches
       ON watches.id = found_items.watch_id
-    WHERE found_items.watch_id = ${id};
+    WHERE found_items.watch_id = ${id}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM deleted_items
+        WHERE deleted_items.watch_id = found_items.watch_id
+          AND deleted_items.product_url = found_items.product_url
+      );
   `;
 
   const items = result.rows as ItemRow[];
@@ -90,13 +97,13 @@ watches.keyword
   });
 
   console.log(
-  "ITEMS WATCH PRICE:",
-  items.map((item) => ({
-    id: item.id,
-    name: item.name,
-    watch_price: item.watch_price,
-  }))
-);
+    "ITEMS WATCH PRICE:",
+    items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      watch_price: item.watch_price,
+    }))
+  );
 
-return NextResponse.json(items);
-  }
+  return NextResponse.json(items);
+}
