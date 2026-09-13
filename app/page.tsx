@@ -391,15 +391,15 @@ function ProductItem({
         disabled={watchingLoading}
         title={
           item.watch_price
-            ? "Zrušit hlídání ceny"
-            : "Hlídát změnu ceny"
+  ? "Zrušit hlídání ceny"
+  : "Zapnout hlídání ceny"
         }
       >
         {watchingLoading
-          ? "…"
-          : item.watch_price
-            ? "🔕"
-            : "🔔"}
+  ? "…"
+  : item.watch_price
+    ? "🔔"
+    : "🔕"}
       </button>
 
       <button
