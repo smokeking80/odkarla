@@ -269,46 +269,54 @@ function ProductItem({
     useState(false);
 
   async function togglePriceWatch() {
-  if (watchingLoading) {
-    return;
-  }
-
-  const desiredWatchPrice = !item.watch_price;
-
-  setWatchingLoading(true);
-
-  try {
-    const res = await fetch(
-      `/api/watches/${item.watch_id}/items/${item.id}/watch`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          watch_price: desiredWatchPrice,
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      alert("Nepodařilo se změnit hlídání ceny.");
+    if (watchingLoading) {
       return;
     }
 
-    const data = await res.json();
+    const desiredWatchPrice = !item.watch_price;
 
-    onWatchChanged(
-      item.id,
-      data.watch_price
-    );
-  } catch (error) {
-    console.error(error);
-    alert("Nepodařilo se změnit hlídání ceny.");
-  } finally {
-    setWatchingLoading(false);
+    setWatchingLoading(true);
+
+    try {
+      const res = await fetch(
+        `/api/watches/${item.watch_id}/items/${item.id}/watch`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            watch_price: desiredWatchPrice,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        alert("Nepodařilo se změnit hlídání ceny.");
+        return;
+      }
+
+      const data = await res.json();
+
+      onWatchChanged(
+        item.id,
+        data.watch_price
+      );
+    } catch (error) {
+      console.error(error);
+      alert("Nepodařilo se změnit hlídání ceny.");
+    } finally {
+      setWatchingLoading(false);
+    }
   }
-}
+
+  async function removeItem() {
+    if (
+      !confirm(
+        `Odstranit položku "${item.name}"?`
+      )
+    ) {
+      return;
     }
 
     const res = await fetch(
@@ -404,6 +412,8 @@ function ProductItem({
     </div>
   );
 }
+
+  
 
 export default function Home() {
   const [watches, setWatches] = useState<Watch[]>(
