@@ -3,7 +3,7 @@ import { sql } from "@vercel/postgres";
 import { ensureSchema } from "../../../../../../../lib/db";
 
 export async function PATCH(
-  _req: NextRequest,
+  req: NextRequest,
   {
     params,
   }: {
@@ -28,9 +28,27 @@ export async function PATCH(
     );
   }
 
+  let body: { watch_price?: boolean };
+
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Neplatná data." },
+      { status: 400 }
+    );
+  }
+
+  if (typeof body.watch_price !== "boolean") {
+    return NextResponse.json(
+      { error: "Chybí hodnota watch_price." },
+      { status: 400 }
+    );
+  }
+
   const result = await sql`
     UPDATE found_items
-    SET watch_price = NOT watch_price
+    SET watch_price = ${body.watch_price}
     WHERE id = ${itemId}
       AND watch_id = ${watchId}
     RETURNING id, watch_price;
@@ -44,24 +62,24 @@ export async function PATCH(
   }
 
   console.log(
-  "WATCH PRICE UPDATE:",
-  result.rows[0]
-);
-  
-const check = await sql`
-  SELECT id, watch_price
-  FROM found_items
-  WHERE id = ${itemId}
-    AND watch_id = ${watchId};
-`;
+    "WATCH PRICE UPDATE:",
+    result.rows[0]
+  );
 
-console.log(
-  "WATCH PRICE AFTER UPDATE:",
-  check.rows[0]
-);
-  
-return NextResponse.json({
-  success: true,
-  watch_price: result.rows[0].watch_price,
-});
+  const check = await sql`
+    SELECT id, watch_price
+    FROM found_items
+    WHERE id = ${itemId}
+      AND watch_id = ${watchId};
+  `;
+
+  console.log(
+    "WATCH PRICE AFTER UPDATE:",
+    check.rows[0]
+  );
+
+  return NextResponse.json({
+    success: true,
+    watch_price: result.rows[0].watch_price,
+  });
 }
