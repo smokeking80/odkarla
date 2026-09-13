@@ -83,49 +83,60 @@ async function runScan(req: NextRequest) {
         `;
 
         if (existing.rowCount === 0) {
-          await sql`
-            INSERT INTO found_items
-  (
-    watch_id,
-    product_url,
-    name,
-    first_price,
-    last_price,
-    last_notified_at,
-    watch_price
-  )
-VALUES
-  (
-    ${watch.id},
-    ${product.url},
-    ${product.name},
-    ${product.price},
-    ${product.price},
-    now(),
-    true
-  );
-          `;
+  const deleted = await sql`
+    SELECT id
+    FROM deleted_items
+    WHERE watch_id = ${watch.id}
+      AND product_url = ${product.url};
+  `;
 
-          const priceOk =
-            watch.max_price == null ||
-            (product.price != null &&
-              product.price <= watch.max_price);
+  if (deleted.rowCount > 0) {
+    continue;
+  }
 
-          if (priceOk) {
-            newCount++;
+  await sql`
+    INSERT INTO found_items
+      (
+        watch_id,
+        product_url,
+        name,
+        first_price,
+        last_price,
+        last_notified_at,
+        watch_price
+      )
+    VALUES
+      (
+        ${watch.id},
+        ${product.url},
+        ${product.name},
+        ${product.price},
+        ${product.price},
+        now(),
+        true
+      );
+  `;
 
-            await sendTelegramMessage(
-              `🆕 <b>Nová položka</b> pro "${watch.keyword}"\n` +
-                `${product.name}\n` +
-                `${
-                  product.price != null
-                    ? product.price + " Kč"
-                    : "cena neznámá"
-                }\n` +
-                `${product.url}`
-            );
-          }
-        } else {
+  const priceOk =
+    watch.max_price == null ||
+    (product.price != null &&
+      product.price <= watch.max_price);
+
+  if (priceOk) {
+    newCount++;
+
+    await sendTelegramMessage(
+      `🆕 <b>Nová položka</b> pro "${watch.keyword}"\n` +
+        `${product.name}\n` +
+        `${
+          product.price != null
+            ? product.price + " Kč"
+            : "cena neznámá"
+        }\n` +
+        `${product.url}`
+    );
+  }
+} else {
           const row = existing.rows[0];
 
           const previousPrice =
