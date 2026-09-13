@@ -85,23 +85,25 @@ async function runScan(req: NextRequest) {
         if (existing.rowCount === 0) {
           await sql`
             INSERT INTO found_items
-              (
-                watch_id,
-                product_url,
-                name,
-                first_price,
-                last_price,
-                last_notified_at
-              )
-            VALUES
-              (
-                ${watch.id},
-                ${product.url},
-                ${product.name},
-                ${product.price},
-                ${product.price},
-                now()
-              );
+  (
+    watch_id,
+    product_url,
+    name,
+    first_price,
+    last_price,
+    last_notified_at,
+    watch_price
+  )
+VALUES
+  (
+    ${watch.id},
+    ${product.url},
+    ${product.name},
+    ${product.price},
+    ${product.price},
+    now(),
+    true
+  );
           `;
 
           const priceOk =
