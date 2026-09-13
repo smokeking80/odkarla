@@ -385,7 +385,7 @@ function ProductItem({
       <button
         className="secondary"
         onClick={togglePriceWatch}
-        disabled={watchingLoading}
+        disabled={false}
         title={
           item.watch_price
             ? "Zrušit hlídání ceny"
