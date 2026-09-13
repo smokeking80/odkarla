@@ -28,19 +28,46 @@ export async function DELETE(
     );
   }
 
-  const result = await sql`
-    DELETE FROM found_items
+  /*
+   * Nejprve zjistíme URL produktu.
+   */
+  const item = await sql`
+    SELECT product_url
+    FROM found_items
     WHERE id = ${itemId}
-      AND watch_id = ${watchId}
-    RETURNING id;
+      AND watch_id = ${watchId};
   `;
 
-  if (result.rowCount === 0) {
+  if (item.rowCount === 0) {
     return NextResponse.json(
       { error: "Položka nebyla nalezena." },
       { status: 404 }
     );
   }
+
+  const productUrl = item.rows[0].product_url;
+
+  /*
+   * Zapamatujeme si, že uživatel tento produkt
+   * pro toto hlídání ručně smazal.
+   */
+  await sql`
+    INSERT INTO deleted_items
+      (watch_id, product_url)
+    VALUES
+      (${watchId}, ${productUrl})
+    ON CONFLICT (watch_id, product_url)
+    DO NOTHING;
+  `;
+
+  /*
+   * Teprve potom produkt odstraníme z nalezených položek.
+   */
+  await sql`
+    DELETE FROM found_items
+    WHERE id = ${itemId}
+      AND watch_id = ${watchId};
+  `;
 
   return NextResponse.json({
     success: true,
