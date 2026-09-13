@@ -4,6 +4,7 @@ import { ensureSchema } from "../../../../../lib/db";
 import { scoreProduct } from "../../../../../lib/scraper";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type ItemRow = {
   id: number;
