@@ -89,7 +89,7 @@ async function runScan(req: NextRequest) {
               AND product_url = ${product.url};
           `;
 
-          if (deleted.rowCount > 0) {
+          if (deleted.rows.length > 0) {
             continue;
           }
 
