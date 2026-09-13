@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
   try {
     const template =
       process.env.SEARCH_URL_TEMPLATE ??
-      "https://www.odkarla.cz/{slug}";
+      "https://www.odkarla.cz/vyhledavani-old?q={query}";
 
     const searchUrl = buildSearchUrl(
       template,
@@ -93,40 +93,41 @@ export async function POST(req: NextRequest) {
      *    včetně dalších údajů z detailu produktu.
      */
     for (const product of products) {
-      await sql`
-        INSERT INTO found_items
-          (
-            watch_id,
-            product_url,
-            name,
-            brand,
-            model,
-            ean,
-            asin,
-            category,
-            first_price,
-            last_price,
-            last_notified_at
-          )
-        VALUES
-          (
-            ${watch.id},
-            ${product.url},
-            ${product.name},
-            ${product.brand},
-            ${product.model},
-            ${product.ean},
-            ${product.asin},
-            ${product.category},
-            ${product.price},
-            ${product.price},
-            NULL
-          )
-        ON CONFLICT (watch_id, product_url)
-        DO NOTHING;
-      `;
-    }
-
+  await sql`
+    INSERT INTO found_items
+      (
+        watch_id,
+        product_url,
+        name,
+        brand,
+        model,
+        ean,
+        asin,
+        category,
+        first_price,
+        last_price,
+        last_notified_at,
+        watch_price
+      )
+    VALUES
+      (
+        ${watch.id},
+        ${product.url},
+        ${product.name},
+        ${product.brand},
+        ${product.model},
+        ${product.ean},
+        ${product.asin},
+        ${product.category},
+        ${product.price},
+        ${product.price},
+        NULL,
+        true
+      )
+    ON CONFLICT (watch_id, product_url)
+    DO NOTHING;
+  `;
+}
     /*
      * 4. Vrátíme i počet nalezených produktů.
      */
