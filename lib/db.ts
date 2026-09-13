@@ -30,9 +30,34 @@ export async function ensureSchema() {
   `;
   
   await sql`
-    ALTER TABLE found_items
-    ADD COLUMN IF NOT EXISTS watch_price BOOLEAN NOT NULL DEFAULT false;
-  `;
+  ALTER TABLE found_items
+  ADD COLUMN IF NOT EXISTS watch_price BOOLEAN NOT NULL DEFAULT false;
+`;
+
+await sql`
+  ALTER TABLE found_items
+  ADD COLUMN IF NOT EXISTS brand TEXT;
+`;
+
+await sql`
+  ALTER TABLE found_items
+  ADD COLUMN IF NOT EXISTS model TEXT;
+`;
+
+await sql`
+  ALTER TABLE found_items
+  ADD COLUMN IF NOT EXISTS ean TEXT;
+`;
+
+await sql`
+  ALTER TABLE found_items
+  ADD COLUMN IF NOT EXISTS asin TEXT;
+`;
+
+await sql`
+  ALTER TABLE found_items
+  ADD COLUMN IF NOT EXISTS category TEXT;
+`;
   
   initialized = true;
 }
