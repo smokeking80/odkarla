@@ -141,6 +141,9 @@ async function runScan(req: NextRequest) {
           const previousPrice =
             row.last_price as number | null;
 
+          const watchingPrice =
+            row.watch_price === true;
+
           await sql`
             UPDATE found_items
             SET
@@ -159,7 +162,11 @@ async function runScan(req: NextRequest) {
             (product.price != null &&
               product.price <= watch.max_price);
 
-          if (droppedPrice && underTarget) {
+          if (
+            watchingPrice &&
+            droppedPrice &&
+            underTarget
+          ) {
             priceDropCount++;
 
             await sql`
