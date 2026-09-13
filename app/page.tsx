@@ -32,41 +32,54 @@ function WatchCard({
   const [items, setItems] = useState<Item[] | null>(null);
 
   async function toggle() {
-  if (!open) {
-    const res = await fetch(
-      `/api/watches/${watch.id}/items`,
-      {
+    if (!open) {
+      const res = await fetch(`/api/watches/${watch.id}/items`, {
         cache: "no-store",
-      }
-    );
+      });
 
-    if (!res.ok) {
-      setItems([]);
-    } else {
-      setItems(await res.json());
+      if (!res.ok) {
+        setItems([]);
+      } else {
+        setItems(await res.json());
+      }
     }
+
+    setOpen(!open);
   }
 
-  setOpen(!open);
-}
-
   async function remove() {
-    if (
-      !confirm(
-        `Smazat hlídání "${watch.keyword}"?`
-      )
-    ) {
+    if (!confirm(`Smazat hlídání "${watch.keyword}"?`)) {
       return;
     }
 
-    await fetch(
-      `/api/watches/${watch.id}`,
-      {
-        method: "DELETE",
-      }
-    );
+    await fetch(`/api/watches/${watch.id}`, {
+      method: "DELETE",
+    });
 
     onDeleted();
+  }
+
+  function updateItemWatchPrice(itemId: number, watchPrice: boolean) {
+    setItems((current) =>
+      current
+        ? current.map((item) =>
+            item.id === itemId
+              ? {
+                  ...item,
+                  watch_price: watchPrice,
+                }
+              : item
+          )
+        : current
+    );
+  }
+
+  function removeItemFromList(itemId: number) {
+    setItems((current) =>
+      current
+        ? current.filter((item) => item.id !== itemId)
+        : current
+    );
   }
 
   const allItems = items ?? [];
@@ -137,10 +150,6 @@ function WatchCard({
               Zatím nic nenalezeno.
             </p>
           ) : watch.max_price === null ? (
-            /*
-             * Pokud není nastavená cílová cena,
-             * zobrazíme všechny produkty normálně.
-             */
             <div>
               <div className="items-title">
                 Všechny nalezené položky
@@ -148,25 +157,14 @@ function WatchCard({
 
               {allItems.map((item) => (
                 <ProductItem
-  key={item.id}
-  item={item}
-  onRemoved={(itemId) => {
-    setItems((current) =>
-      current
-        ? current.filter(
-            (product) => product.id !== itemId
-          )
-        : current
-    );
-  }}
-/>
+                  key={item.id}
+                  item={item}
+                  onWatchChanged={updateItemWatchPrice}
+                  onRemoved={removeItemFromList}
+                />
               ))}
             </div>
           ) : (
-            /*
-             * Pokud je nastavená cílová cena,
-             * rozdělíme produkty na dvě skupiny.
-             */
             <div
               style={{
                 display: "grid",
@@ -193,19 +191,12 @@ function WatchCard({
                 ) : (
                   underTarget.map((item) => (
                     <ProductItem
-  key={item.id}
-  item={item}
-  targetPrice={watch.max_price}
-  onRemoved={(itemId) => {
-    setItems((current) =>
-      current
-        ? current.filter(
-            (product) => product.id !== itemId
-          )
-        : current
-    );
-  }}
-/>
+                      key={item.id}
+                      item={item}
+                      targetPrice={watch.max_price}
+                      onWatchChanged={updateItemWatchPrice}
+                      onRemoved={removeItemFromList}
+                    />
                   ))
                 )}
               </div>
@@ -228,19 +219,12 @@ function WatchCard({
                 ) : (
                   overTarget.map((item) => (
                     <ProductItem
-  key={item.id}
-  item={item}
-  targetPrice={watch.max_price}
-  onRemoved={(itemId) => {
-    setItems((current) =>
-      current
-        ? current.filter(
-            (product) => product.id !== itemId
-          )
-        : current
-    );
-  }}
-/>
+                      key={item.id}
+                      item={item}
+                      targetPrice={watch.max_price}
+                      onWatchChanged={updateItemWatchPrice}
+                      onRemoved={removeItemFromList}
+                    />
                   ))
                 )}
               </div>
@@ -255,10 +239,15 @@ function WatchCard({
 function ProductItem({
   item,
   targetPrice,
+  onWatchChanged,
   onRemoved,
 }: {
   item: Item;
   targetPrice?: number | null;
+  onWatchChanged: (
+    itemId: number,
+    watchPrice: boolean
+  ) => void;
   onRemoved: (itemId: number) => void;
 }) {
   const currentPrice = item.last_price;
@@ -275,43 +264,49 @@ function ProductItem({
     item.first_price !== null &&
     currentPrice !== null &&
     currentPrice < item.first_price;
-  
-const watchingPrice = item.watch_price;
 
-const [watchingLoading, setWatchingLoading] =
-  useState(false);
+  const [watchingLoading, setWatchingLoading] =
+    useState(false);
 
-async function togglePriceWatch() {
-  setWatchingLoading(true);
-
-  try {
-    const res = await fetch(
-      `/api/watches/${item.watch_id}/items/${item.id}/watch`,
-      {
-        method: "PATCH",
-      }
-    );
-
-    if (!res.ok) {
-      alert(
-        "Nepodařilo se změnit hlídání ceny."
-      );
+  async function togglePriceWatch() {
+    if (watchingLoading) {
       return;
     }
 
-    const data = await res.json();
+    setWatchingLoading(true);
 
-    setWatchingPrice(data.watch_price);
-  } catch (error) {
-    console.error(error);
+    try {
+      const res = await fetch(
+        `/api/watches/${item.watch_id}/items/${item.id}/watch`,
+        {
+          method: "PATCH",
+        }
+      );
 
-    alert(
-      "Nepodařilo se změnit hlídání ceny."
-    );
-  } finally {
-    setWatchingLoading(false);
+      if (!res.ok) {
+        alert(
+          "Nepodařilo se změnit hlídání ceny."
+        );
+        return;
+      }
+
+      const data = await res.json();
+
+      onWatchChanged(
+        item.id,
+        data.watch_price
+      );
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        "Nepodařilo se změnit hlídání ceny."
+      );
+    } finally {
+      setWatchingLoading(false);
+    }
   }
-}
+
   async function removeItem() {
     if (
       !confirm(
@@ -386,22 +381,23 @@ async function togglePriceWatch() {
           ? `${currentPrice} Kč`
           : "Cena neznámá"}
       </span>
+
       <button
-  className="secondary"
-  onClick={togglePriceWatch}
-  disabled={watchingLoading}
-  title={
-    watchingPrice
-      ? "Zrušit hlídání ceny"
-      : "Hlídát změnu ceny"
-  }
->
-  {watchingLoading
-    ? "…"
-    : watchingPrice
-      ? "🔕"
-      : "🔔"}
-</button>
+        className="secondary"
+        onClick={togglePriceWatch}
+        disabled={watchingLoading}
+        title={
+          item.watch_price
+            ? "Zrušit hlídání ceny"
+            : "Hlídát změnu ceny"
+        }
+      >
+        {watchingLoading
+          ? "…"
+          : item.watch_price
+            ? "🔕"
+            : "🔔"}
+      </button>
 
       <button
         className="secondary"
@@ -502,13 +498,6 @@ export default function Home() {
       setKeyword("");
       setMaxPrice("");
 
-      /*
-       * API už při POSTu provede první
-       * vyhledávání na OdKarla.
-       *
-       * Proto po návratu pouze znovu
-       * načteme seznam hlídání.
-       */
       await load();
     } catch (error) {
       console.error(error);
