@@ -2,18 +2,30 @@ name: Scan OdKarla.cz
 
 on:
   schedule:
-    - cron: "17,47 9-17 * * *"
-      timezone: "Europe/Prague"
-    - cron: "17 18-21 * * *"
+    # Záloha k externímu cronu. Nepoužívej celé/půlhodiny,
+    # tam je fronta GitHubu nejdelší.
+    - cron: "23 8-21 * * *"
       timezone: "Europe/Prague"
   workflow_dispatch: {}
+
+# Když se nahromadí zpožděné běhy, ať se nespustí přes sebe.
+concurrency:
+  group: scan-odkarla
+  cancel-in-progress: false
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Zavolat /api/scan na Vercelu
         run: |
-          curl -sS -X POST "${{ secrets.VERCEL_URL }}/api/scan" \
+          code=$(curl -sS -X POST "${{ secrets.VERCEL_URL }}/api/scan" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -w "\nHTTP status: %{http_code}\n"
+            --max-time 120 \
+            --retry 3 --retry-delay 10 --retry-all-errors \
+            -o /tmp/out.txt -w "%{http_code}")
+          echo "HTTP status: $code"
+          cat /tmp/out.txt
+          # Nenech job "zezelenat", když endpoint vrátí 4xx/5xx
+          [ "$code" -lt 400 ]
