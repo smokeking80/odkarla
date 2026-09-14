@@ -3,6 +3,7 @@ name: Scan OdKarla.cz
 on:
   schedule:
     - cron: "17 * * * *"
+      timezone: "Europe/Prague"
   workflow_dispatch: {}
 
 jobs:
