@@ -2,7 +2,7 @@ name: Scan OdKarla.cz
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch: {}
 
 jobs:
