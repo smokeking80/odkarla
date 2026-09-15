@@ -25,6 +25,16 @@ function isRealCategoryUrl(url: string): boolean {
       return false;
     }
 
+    // Kategorie nesmí mít žádné parametry,
+    // například ?page=2.
+    if (parsed.search) {
+      return false;
+    }
+
+    if (parsed.hash) {
+      return false;
+    }
+
     if (!/~c\d+(?:-b\d+)?$/.test(parsed.pathname)) {
       return false;
     }
