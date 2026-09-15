@@ -442,9 +442,25 @@ export async function scrapeSearchPage(
     }
 
     const html = await response.text();
-    const $ = cheerio.load(html);
+const $ = cheerio.load(html);
 
-    const productLinks = $('a[href*="~p"]');
+console.error(
+  `ODKARLA DEBUG: HTML délka=${html.length}`
+);
+
+console.error(
+  `ODKARLA DEBUG: obsahuje ~p=${html.includes("~p")}`
+);
+
+console.error(
+  `ODKARLA DEBUG: obsahuje iPhone=${html.toLowerCase().includes("iphone")}`
+);
+
+console.error(
+  `ODKARLA DEBUG: obsahuje Mobilní telefon=${html.includes("Mobilní telefon")}`
+);
+
+const productLinks = $('a[href*="~p"]');
 
     console.error(
       `ODKARLA DEBUG: stránka ${page}, produktových odkazů=${productLinks.length}`
