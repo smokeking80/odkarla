@@ -17,6 +17,24 @@ type Category = {
   url: string;
 };
 
+function isRealCategoryUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.hostname !== "www.odkarla.cz") {
+      return false;
+    }
+
+    if (!/~c\d+(?:-b\d+)?$/.test(parsed.pathname)) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadCategory(
   path: string
 ): Promise<Category[]> {
@@ -43,10 +61,12 @@ async function loadCategory(
 
   const categories = new Map<string, Category>();
 
-  $("a[href*='~c']").each((_, element) => {
+  $("a[href]").each((_, element) => {
     const href = $(element).attr("href");
 
-    if (!href) return;
+    if (!href) {
+      return;
+    }
 
     let absoluteUrl: string;
 
@@ -59,7 +79,7 @@ async function loadCategory(
       return;
     }
 
-    if (!absoluteUrl.includes("~c")) {
+    if (!isRealCategoryUrl(absoluteUrl)) {
       return;
     }
 
@@ -102,7 +122,10 @@ export async function GET() {
         });
       } catch (error) {
         results.push({
-          source: path,
+          source: new URL(
+            path,
+            BASE_URL
+          ).toString(),
           error:
             error instanceof Error
               ? error.message
