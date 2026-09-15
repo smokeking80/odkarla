@@ -1,5 +1,3 @@
-import * as cheerio from "cheerio";
-
 export type ScrapedProduct = {
   url: string;
   name: string;
@@ -11,6 +9,30 @@ export type ScrapedProduct = {
   category: string | null;
 };
 
+type LuigiHit = {
+  url?: string;
+  attributes?: {
+    title?: string;
+    original_url?: string;
+    price_amount?: number;
+    brand?: string[];
+    Model?: string[];
+    EAN?: string[];
+    ASIN?: string[];
+    category?: string[];
+    all_categories?: string[];
+  };
+};
+
+type LuigiResponse = {
+  results?: {
+    hits?: LuigiHit[];
+    total_hits?: number;
+    facets?: unknown[];
+  };
+  next_page?: number | null;
+};
+
 function normalizeText(value: string): string {
   return value
     .toLowerCase()
@@ -20,22 +42,27 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function matchesKeyword(
-  productName: string,
+function createSearchSlug(keyword: string): string {
+  return normalizeText(keyword)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function buildSearchUrl(
+  template: string,
   keyword: string
-): boolean {
-  const normalizedName = normalizeText(productName);
-  const normalizedKeyword = normalizeText(keyword);
+): string {
+  const slug = createSearchSlug(keyword);
 
-  if (!normalizedKeyword) return true;
-
-  const words = normalizedKeyword
-    .split(" ")
-    .filter(Boolean);
-
-  return words.every((word) =>
-    normalizedName.includes(word)
-  );
+  return template
+    .replace(
+      "{query}",
+      encodeURIComponent(keyword)
+    )
+    .replace(
+      "{slug}",
+      slug
+    );
 }
 
 export function scoreProduct(
@@ -45,25 +72,26 @@ export function scoreProduct(
   const name = normalizeText(productName);
   const query = normalizeText(keyword);
 
+  if (!query) {
+    return 0;
+  }
+
   const queryWords = query
     .split(" ")
     .filter(Boolean);
 
   let score = 0;
 
-  // Přesná shoda celého hledaného výrazu
   if (name.includes(query)) {
     score += 50;
   }
 
-  // Každé slovo hledaného výrazu
   for (const word of queryWords) {
     if (name.includes(word)) {
       score += 20;
     }
   }
 
-  // Slova typická pro hlavní produkt
   const mainProductWords = [
     "telefon",
     "mobil",
@@ -76,9 +104,7 @@ export function scoreProduct(
     "hodinky",
     "sluchatka",
     "vysavac",
-    "mixér",
     "mixer",
-    "kuchynsky robot",
     "robot",
     "gril",
     "kavovar",
@@ -87,7 +113,6 @@ export function scoreProduct(
     "drone",
     "dron",
     "konzole",
-    "herni konzole",
   ];
 
   for (const word of mainProductWords) {
@@ -96,14 +121,12 @@ export function scoreProduct(
     }
   }
 
-  // Slova typická pro příslušenství / náhradní díly
   const accessoryWords = [
     "pouzdro",
     "obal",
     "kryt",
     "folie",
     "sklo",
-    "ochranne sklo",
     "kabel",
     "nabijecka",
     "adapter",
@@ -126,13 +149,10 @@ export function scoreProduct(
     "pasek",
     "baterie",
     "akumulator",
-    "skladaci",
     "sitko",
     "tesneni",
   ];
 
-  // Pokud uživatel příslušenství přímo hledá,
-  // nebudeme ho penalizovat.
   const userWantsAccessory =
     accessoryWords.some((word) =>
       query.includes(word)
@@ -149,408 +169,247 @@ export function scoreProduct(
   return score;
 }
 
-function extractProductName(
-  $: cheerio.CheerioAPI,
-  element: cheerio.Element
-): string {
-  const link = $(element);
+function getFirstString(
+  value: unknown
+): string | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
 
-  const title = link.attr("title")?.trim();
-  if (title) return title;
-
-  const imageAlt = link
-    .find("img[alt]")
-    .first()
-    .attr("alt")
-    ?.trim();
-
-  if (imageAlt) return imageAlt;
-
-  const linkText = link
-    .clone()
-    .find("script, style")
-    .remove()
-    .end()
-    .text()
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (linkText) return linkText;
-
-  const parent = link.parent();
-
-  const heading = parent
-    .find("h1, h2, h3, h4, h5, h6")
-    .first()
-    .text()
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return heading;
-}
-
-function extractPrice(text: string): number | null {
-  const match = text.match(
-    /(\d[\d\s]*)\s*Kč/i
+  const first = value.find(
+    (item) =>
+      typeof item === "string" &&
+      item.trim() !== ""
   );
 
-  if (!match) return null;
-
-  const number = match[1].replace(/\s/g, "");
-  const price = Number(number);
-
-  return Number.isFinite(price)
-    ? price
+  return first
+    ? String(first).trim()
     : null;
 }
 
-function extractField(
-  $: cheerio.CheerioAPI,
-  labels: string[]
-): string | null {
-  const normalizedLabels = labels.map(normalizeText);
+function getPrice(
+  value: unknown
+): number | null {
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
+    return value;
+  }
 
-  let result: string | null = null;
+  if (typeof value === "string") {
+    const cleaned = value
+      .replace(/\s/g, "")
+      .replace(",", ".");
 
-  $("body *").each((_, element) => {
-    if (result) return;
+    const number = Number(cleaned);
 
-    const text = $(element)
-      .clone()
-      .children()
-      .remove()
-      .end()
-      .text()
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!text) return;
-
-    const normalized = normalizeText(text);
-
-    for (const label of normalizedLabels) {
-      if (
-        normalized === label ||
-        normalized.startsWith(`${label}:`)
-      ) {
-        const value = text
-          .replace(
-            new RegExp(
-              `^${label}\\s*:\\s*`,
-              "i"
-            ),
-            ""
-          )
-          .trim();
-
-        if (
-          value &&
-          normalizeText(value) !== label
-        ) {
-          result = value;
-        }
-
-        return;
-      }
+    if (Number.isFinite(number)) {
+      return number;
     }
-  });
-
-  return result;
-}
-
-function extractCategory(
-  $: cheerio.CheerioAPI
-): string | null {
-  const candidates: string[] = [];
-
-  $("a[href*='/kategorie/'], a[href*='/category/']").each(
-    (_, element) => {
-      const text = $(element)
-        .text()
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (text) {
-        candidates.push(text);
-      }
-    }
-  );
-
-  if (candidates.length > 0) {
-    return candidates.join(" → ");
   }
 
   return null;
 }
 
-async function scrapeProductDetail(
-  productUrl: string
-): Promise<{
-  brand: string | null;
-  model: string | null;
-  ean: string | null;
-  asin: string | null;
-  category: string | null;
-}> {
-  try {
-    const response = await fetch(productUrl, {
+function convertHit(
+  hit: LuigiHit
+): ScrapedProduct | null {
+  const attributes =
+    hit.attributes ?? {};
+
+  const name =
+    attributes.title?.trim() ??
+    "";
+
+  const url =
+    attributes.original_url?.trim() ??
+    hit.url?.trim() ??
+    "";
+
+  if (!name || !url) {
+    return null;
+  }
+
+  const category =
+    getFirstString(
+      attributes.category
+    ) ??
+    (
+      Array.isArray(
+        attributes.all_categories
+      )
+        ? attributes.all_categories.join(
+            " → "
+          )
+        : null
+    );
+
+  return {
+    url,
+    name,
+    price: getPrice(
+      attributes.price_amount
+    ),
+    brand: getFirstString(
+      attributes.brand
+    ),
+    model: getFirstString(
+      attributes.Model
+    ),
+    ean: getFirstString(
+      attributes.EAN
+    ),
+    asin: getFirstString(
+      attributes.ASIN
+    ),
+    category,
+  };
+}
+
+function buildLuigiBoxUrl(
+  keyword: string
+): string {
+  const url =
+    new URL(
+      "https://live.luigisbox.tech/search"
+    );
+
+  url.searchParams.set(
+    "tracker_id",
+    "224905-260203"
+  );
+
+  url.searchParams.set(
+    "q",
+    keyword
+  );
+
+  url.searchParams.append(
+    "f[]",
+    "type:item"
+  );
+
+  url.searchParams.set(
+    "facets",
+    "price_amount,category,brand,labels,availability_source"
+  );
+
+  url.searchParams.set(
+    "size",
+    "96"
+  );
+
+  return url.toString();
+}
+
+async function fetchLuigiBox(
+  url: string
+): Promise<LuigiResponse> {
+  const response = await fetch(
+    url,
+    {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
         Accept:
-          "text/html,application/xhtml+xml",
+          "application/json",
+        "Accept-Encoding":
+          "gzip, deflate",
       },
       cache: "no-store",
-    });
-
-    if (!response.ok) {
-      console.error(
-        `Detail produktu ${productUrl} odpověděl HTTP ${response.status}`
-      );
-
-      return {
-        brand: null,
-        model: null,
-        ean: null,
-        asin: null,
-        category: null,
-      };
     }
+  );
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    const bodyText = $("body")
-      .text()
-      .replace(/\s+/g, " ");
-
-    const brand =
-      extractField($, ["Značka", "Brand"]);
-
-    const model =
-      extractField($, ["Model"]);
-
-    const ean =
-      extractField($, ["EAN"]);
-
-    const asin =
-      extractField($, ["ASIN"]);
-
-    const category =
-      extractCategory($);
-
-    const eanMatch = bodyText.match(
-      /\bEAN\s*:?\s*(\d{8,14})\b/i
-    );
-
-    const asinMatch = bodyText.match(
-      /\bASIN\s*:?\s*([A-Z0-9]{10})\b/i
-    );
-
-    return {
-      brand,
-      model,
-      ean: ean ?? eanMatch?.[1] ?? null,
-      asin: asin ?? asinMatch?.[1] ?? null,
-      category,
-    };
-  } catch (error) {
-    console.error(
-      `Nepodařilo se načíst detail ${productUrl}:`,
-      error
-    );
-
-    return {
-      brand: null,
-      model: null,
-      ean: null,
-      asin: null,
-      category: null,
-    };
-  }
-}
-
-function createSearchSlug(
-  keyword: string
-): string {
-  return normalizeText(keyword)
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-export function buildSearchUrl(
-  template: string,
-  keyword: string
-): string {
-  const slug = createSearchSlug(keyword);
-  const normalizedKeyword = normalizeText(keyword);
-
-  // Test: iPhone hledáme přímo v kategorii
-  // Mobilní telefony a pouze u výrobce Apple.
-  if (normalizedKeyword.includes("iphone")) {
-    return (
-      "https://www.odkarla.cz/vyhledavani" +
-      `?q=${encodeURIComponent(keyword)}` +
-      "&lb.f%5B%5D=category%3AMobiln%C3%AD%20telefony" +
-      "&lb.f%5B%5D=brand%3AApple"
+  if (!response.ok) {
+    throw new Error(
+      `LuigiBox odpověděl HTTP ${response.status}`
     );
   }
 
-  return template
-    .replace(
-      "{query}",
-      encodeURIComponent(keyword)
-    )
-    .replace(
-      "{slug}",
-      slug
-    );
+  return response.json();
 }
 
 export async function scrapeSearchPage(
-  url: string,
+  _url: string,
   keyword: string
 ): Promise<ScrapedProduct[]> {
+  const searchUrl =
+    buildLuigiBoxUrl(keyword);
+
+  console.error(
+    `LUIGISBOX DEBUG: hledám "${keyword}"`
+  );
+
+  console.error(
+    `LUIGISBOX DEBUG: URL ${searchUrl}`
+  );
+
+  const data =
+    await fetchLuigiBox(searchUrl);
+
+  const hits =
+    data.results?.hits ?? [];
+
+  console.error(
+    `LUIGISBOX DEBUG: celkem výsledků=${data.results?.total_hits ?? 0}`
+  );
+
+  console.error(
+    `LUIGISBOX DEBUG: stažených produktů=${hits.length}`
+  );
+
   const products: ScrapedProduct[] = [];
 
-  for (let page = 1; page <= 5; page++) {
-    let pageUrl = url;
+  for (const hit of hits) {
+    const product =
+      convertHit(hit);
 
-    if (page > 1) {
-      const separator = url.includes("?") ? "&" : "?";
-      pageUrl = `${url}${separator}page=${page}`;
+    if (!product) {
+      continue;
     }
+
+    products.push(product);
 
     console.error(
-      `ODKARLA DEBUG: načítám stránku ${page}: ${pageUrl}`
+      `LUIGISBOX PRODUKT: ${product.name} | ${product.price ?? "?"} Kč`
     );
-
-    const response = await fetch(pageUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml",
-      },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `OdKarla odpověděla HTTP ${response.status}`
-      );
-    }
-
-    const html = await response.text();
-const $ = cheerio.load(html);
-
-console.error(
-  `ODKARLA DEBUG: HTML délka=${html.length}`
-);
-
-console.error(
-  `ODKARLA DEBUG: obsahuje ~p=${html.includes("~p")}`
-);
-
-console.error(
-  `ODKARLA DEBUG: obsahuje iPhone=${html.toLowerCase().includes("iphone")}`
-);
-
-console.error(
-  `ODKARLA DEBUG: obsahuje Mobilní telefon=${html.includes("Mobilní telefon")}`
-);
-
-const productLinks = $('a[href*="~p"]');
-
-    console.error(
-      `ODKARLA DEBUG: stránka ${page}, produktových odkazů=${productLinks.length}`
-    );
-
-    if (productLinks.length === 0) {
-      break;
-    }
-
-    productLinks.each((_, element) => {
-      const link = $(element);
-      const href = link.attr("href");
-
-      if (!href) return;
-
-      const absoluteUrl = new URL(
-        href,
-        pageUrl
-      ).toString();
-
-      const name = extractProductName(
-        $,
-        element
-      );
-
-      if (!name) return;
-
-      if (!matchesKeyword(name, keyword)) {
-        return;
-      }
-
-      const cardText = link
-        .parent()
-        .parent()
-        .text()
-        .replace(/\s+/g, " ")
-        .trim();
-
-      const price =
-        extractPrice(cardText) ??
-        extractPrice(name);
-     console.error(
-  `ODKARLA PRODUKT: ${name}`
-);
-      
-      products.push({
-        url: absoluteUrl,
-        name,
-        price,
-        brand: null,
-        model: null,
-        ean: null,
-        asin: null,
-        category: null,
-      });
-    });
   }
 
   const uniqueProducts =
-  new Map<string, ScrapedProduct>();
+    new Map<string, ScrapedProduct>();
 
-for (const product of products) {
-  if (!uniqueProducts.has(product.url)) {
-    uniqueProducts.set(
-      product.url,
-      product
-    );
+  for (const product of products) {
+    if (
+      !uniqueProducts.has(
+        product.url
+      )
+    ) {
+      uniqueProducts.set(
+        product.url,
+        product
+      );
+    }
   }
-}
 
-const uniqueList =
-  Array.from(uniqueProducts.values());
+  const uniqueList =
+    Array.from(
+      uniqueProducts.values()
+    );
 
-console.error(
-  `ODKARLA DEBUG: celkem unikátních produktů=${uniqueList.length}`
-);
-
-uniqueList.sort((a, b) => {
-  const scoreA = scoreProduct(
-    a.name,
-    keyword
+  uniqueList.sort(
+    (a, b) =>
+      scoreProduct(
+        b.name,
+        keyword
+      ) -
+      scoreProduct(
+        a.name,
+        keyword
+      )
   );
 
-  const scoreB = scoreProduct(
-    b.name,
-    keyword
+  console.error(
+    `LUIGISBOX DEBUG: unikátních produktů=${uniqueList.length}`
   );
 
-  return scoreB - scoreA;
-});
-
-return uniqueList;
+  return uniqueList;
 }
