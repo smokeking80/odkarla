@@ -290,6 +290,30 @@ function buildLuigiBoxUrl(
     "type:item"
   );
 
+  url.searchParams.append(
+    "f[]",
+    "availability:1"
+  );
+
+  const normalizedKeyword =
+    normalizeText(keyword);
+
+  if (
+    normalizedKeyword.includes(
+      "iphone"
+    )
+  ) {
+    url.searchParams.append(
+      "f[]",
+      "category:Mobilní telefony"
+    );
+
+    url.searchParams.append(
+      "f[]",
+      "brand:Apple"
+    );
+  }
+
   url.searchParams.set(
     "facets",
     "price_amount,category,brand,labels,availability_source"
@@ -312,8 +336,6 @@ async function fetchLuigiBox(
       headers: {
         Accept:
           "application/json",
-        "Accept-Encoding":
-          "gzip, deflate",
       },
       cache: "no-store",
     }
@@ -370,7 +392,9 @@ export async function scrapeSearchPage(
     products.push(product);
 
     console.error(
-      `LUIGISBOX PRODUKT: ${product.name} | ${product.price ?? "?"} Kč`
+      `LUIGISBOX PRODUKT: ${product.name} | ${
+        product.price ?? "?"
+      } Kč`
     );
   }
 
