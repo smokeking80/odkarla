@@ -80,15 +80,14 @@ function extractCategories(
 function buildTree(
   categories: Category[]
 ): Category[] {
-  const byUrl = new Map(
-    categories.map((category) => [
-      category.url,
-      {
-        ...category,
-        children: [],
-      },
-    ])
-  );
+  const byUrl = new Map<string, Category>();
+
+for (const category of categories) {
+  byUrl.set(category.url, {
+    ...category,
+    children: [],
+  });
+}
 
   const result: Category[] = [];
 
