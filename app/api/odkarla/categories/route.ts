@@ -4,54 +4,24 @@ import * as cheerio from "cheerio";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const BASE_URL = "https://www.odkarla.cz";
+
+const TEST_CATEGORIES = [
+  "/elektro~c659",
+  "/mobily-telefony-voip~c664",
+  "/mobilni-telefony~c731",
+];
+
 type Category = {
   name: string;
   url: string;
-  children: Category[];
 };
 
-const BASE_URL = "https://www.odkarla.cz";
+async function loadCategory(
+  path: string
+): Promise<Category[]> {
+  const url = new URL(path, BASE_URL).toString();
 
-const ROOT_CATEGORIES = [
-  "/elektro~c659",
-  "/auto-moto~c660",
-  "/obleceni-moda~c661",
-  "/dum-zahrada~c974",
-  "/sport~c663",
-  "/detske-zbozi~c665",
-  "/hobby~c666",
-  "/knihy-zabava-media~c667",
-  "/drogerie-pece-o-telo~c668",
-  "/bile-zbozi~c669",
-  "/sberatelstvi~c670",
-  "/nezarazene~c671",
-];
-
-function absoluteUrl(href: string): string {
-  return new URL(href, BASE_URL).toString();
-}
-
-function cleanName(value: string): string {
-  return value
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isCategoryUrl(url: string): boolean {
-  return /~c\d+(?:-b\d+)?(?:$|[?#])/.test(url);
-}
-
-function categoryId(url: string): string | null {
-  const match = url.match(
-    /~c(\d+)(?:-b\d+)?(?:$|[?#])/
-  );
-
-  return match ? match[1] : null;
-}
-
-async function fetchPage(
-  url: string
-): Promise<string> {
   const response = await fetch(url, {
     headers: {
       "User-Agent":
@@ -64,207 +34,88 @@ async function fetchPage(
 
   if (!response.ok) {
     throw new Error(
-      `OdKarla odpověděla HTTP ${response.status} pro ${url}`
+      `OdKarla odpověděla HTTP ${response.status}`
     );
   }
 
-  return response.text();
-}
-
-function extractCategories(
-  html: string,
-  parentUrl: string
-): Category[] {
+  const html = await response.text();
   const $ = cheerio.load(html);
 
-  const parentId = categoryId(parentUrl);
+  const categories = new Map<string, Category>();
 
-  if (!parentId) {
-    return [];
-  }
-
-  const result = new Map<string, Category>();
-
-  $("a[href]").each((_, element) => {
+  $("a[href*='~c']").each((_, element) => {
     const href = $(element).attr("href");
 
     if (!href) return;
 
-    let url: string;
+    let absoluteUrl: string;
 
     try {
-      url = absoluteUrl(href);
+      absoluteUrl = new URL(
+        href,
+        BASE_URL
+      ).toString();
     } catch {
       return;
     }
 
-    if (!isCategoryUrl(url)) {
+    if (!absoluteUrl.includes("~c")) {
       return;
     }
 
-    /*
-     * Zajímá nás pouze odkaz na jinou kategorii.
-     *
-     * URL stejné kategorie ignorujeme.
-     */
-    if (url === absoluteUrl(parentUrl)) {
-      return;
-    }
-
-    const childId = categoryId(url);
-
-    if (!childId || childId === parentId) {
-      return;
-    }
-
-    const name = cleanName(
-      $(element)
-        .clone()
-        .find("script, style")
-        .remove()
-        .end()
-        .text()
-    );
+    const name = $(element)
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
 
     if (!name) {
       return;
     }
 
-    if (!result.has(url)) {
-      result.set(url, {
+    if (!categories.has(absoluteUrl)) {
+      categories.set(absoluteUrl, {
         name,
-        url,
-        children: [],
+        url: absoluteUrl,
       });
     }
   });
 
-  return Array.from(result.values());
-}
-
-async function crawlCategory(
-  url: string,
-  visited: Set<string>,
-  depth: number
-): Promise<Category> {
-  if (visited.has(url)) {
-    return {
-      name: url,
-      url,
-      children: [],
-    };
-  }
-
-  visited.add(url);
-
-  const html = await fetchPage(url);
-
-  const $ = cheerio.load(html);
-
-  const heading =
-    cleanName(
-      $("h1")
-        .first()
-        .text()
-    ) || url;
-
-  /*
-   * Nejdříve získáme odkazy na podkategorie.
-   */
-  const children =
-    extractCategories(
-      html,
-      url
-    );
-
-  /*
-   * Abychom při prvním testu neudělali
-   * stovky požadavků, omezíme hloubku.
-   *
-   * Jakmile ověříme, že struktura funguje,
-   * můžeme limit bezpečně zvýšit.
-   */
-  if (depth >= 4) {
-    return {
-      name: heading,
-      url,
-      children: [],
-    };
-  }
-
-  const crawledChildren: Category[] = [];
-
-  for (const child of children) {
-    if (visited.has(child.url)) {
-      continue;
-    }
-
-    try {
-      const fullChild =
-        await crawlCategory(
-          child.url,
-          visited,
-          depth + 1
-        );
-
-      crawledChildren.push(
-        fullChild
-      );
-    } catch (error) {
-      console.error(
-        `Kategorie ${child.url} se nepodařila načíst:`,
-        error
-      );
-
-      crawledChildren.push(child);
-    }
-  }
-
-  return {
-    name: heading,
-    url,
-    children: crawledChildren,
-  };
+  return Array.from(categories.values());
 }
 
 export async function GET() {
   try {
-    const visited = new Set<string>();
+    const results: Record<string, unknown>[] = [];
 
-    const categories: Category[] = [];
-
-    for (const path of ROOT_CATEGORIES) {
-      const url =
-        absoluteUrl(path);
-
+    for (const path of TEST_CATEGORIES) {
       try {
-        const category =
-          await crawlCategory(
-            url,
-            visited,
-            0
-          );
+        const categories =
+          await loadCategory(path);
 
-        categories.push(category);
+        results.push({
+          source: new URL(
+            path,
+            BASE_URL
+          ).toString(),
+          count: categories.length,
+          categories,
+        });
       } catch (error) {
-        console.error(
-          `Hlavní kategorie ${url} se nepodařila načíst:`,
-          error
-        );
+        results.push({
+          source: path,
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        });
       }
     }
 
     return NextResponse.json({
       success: true,
-      count: categories.length,
-      categories,
+      results,
     });
   } catch (error) {
-    console.error(
-      "Načtení kategorií OdKarla selhalo:",
-      error
-    );
-
     return NextResponse.json(
       {
         success: false,
