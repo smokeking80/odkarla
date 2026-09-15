@@ -383,6 +383,18 @@ export function buildSearchUrl(
   keyword: string
 ): string {
   const slug = createSearchSlug(keyword);
+  const normalizedKeyword = normalizeText(keyword);
+
+  // Test: iPhone hledáme přímo v kategorii
+  // Mobilní telefony a pouze u výrobce Apple.
+  if (normalizedKeyword.includes("iphone")) {
+    return (
+      "https://www.odkarla.cz/vyhledavani" +
+      `?q=${encodeURIComponent(keyword)}` +
+      "&lb.f%5B%5D=category%3AMobiln%C3%AD%20telefony" +
+      "&lb.f%5B%5D=brand%3AApple"
+    );
+  }
 
   return template
     .replace(
