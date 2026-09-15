@@ -10,14 +10,25 @@ type Category = {
   children: Category[];
 };
 
-const BASE_URL = "https://www.odkarla.cz/";
+const BASE_URL = "https://www.odkarla.cz";
+
+const ROOT_CATEGORIES = [
+  "/elektro~c659",
+  "/auto-moto~c660",
+  "/obleceni-moda~c661",
+  "/dum-zahrada~c974",
+  "/sport~c663",
+  "/detske-zbozi~c665",
+  "/hobby~c666",
+  "/knihy-zabava-media~c667",
+  "/drogerie-pece-o-telo~c668",
+  "/bile-zbozi~c669",
+  "/sberatelstvi~c670",
+  "/nezarazene~c671",
+];
 
 function absoluteUrl(href: string): string {
   return new URL(href, BASE_URL).toString();
-}
-
-function isCategoryUrl(url: string): boolean {
-  return /~c\d+(?:-b\d+)?(?:$|[?#])/.test(url);
 }
 
 function cleanName(value: string): string {
@@ -26,12 +37,53 @@ function cleanName(value: string): string {
     .trim();
 }
 
+function isCategoryUrl(url: string): boolean {
+  return /~c\d+(?:-b\d+)?(?:$|[?#])/.test(url);
+}
+
+function categoryId(url: string): string | null {
+  const match = url.match(
+    /~c(\d+)(?:-b\d+)?(?:$|[?#])/
+  );
+
+  return match ? match[1] : null;
+}
+
+async function fetchPage(
+  url: string
+): Promise<string> {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `OdKarla odpověděla HTTP ${response.status} pro ${url}`
+    );
+  }
+
+  return response.text();
+}
+
 function extractCategories(
-  html: string
+  html: string,
+  parentUrl: string
 ): Category[] {
   const $ = cheerio.load(html);
 
-  const map = new Map<string, Category>();
+  const parentId = categoryId(parentUrl);
+
+  if (!parentId) {
+    return [];
+  }
+
+  const result = new Map<string, Category>();
 
   $("a[href]").each((_, element) => {
     const href = $(element).attr("href");
@@ -46,7 +98,24 @@ function extractCategories(
       return;
     }
 
-    if (!isCategoryUrl(url)) return;
+    if (!isCategoryUrl(url)) {
+      return;
+    }
+
+    /*
+     * Zajímá nás pouze odkaz na jinou kategorii.
+     *
+     * URL stejné kategorie ignorujeme.
+     */
+    if (url === absoluteUrl(parentUrl)) {
+      return;
+    }
+
+    const childId = categoryId(url);
+
+    if (!childId || childId === parentId) {
+      return;
+    }
 
     const name = cleanName(
       $(element)
@@ -57,16 +126,12 @@ function extractCategories(
         .text()
     );
 
-    if (!name) return;
+    if (!name) {
+      return;
+    }
 
-    /*
-     * OdKarla používá stejné kategorie
-     * na více místech stránky.
-     *
-     * Uložíme každou URL pouze jednou.
-     */
-    if (!map.has(url)) {
-      map.set(url, {
+    if (!result.has(url)) {
+      result.set(url, {
         name,
         url,
         children: [],
@@ -74,93 +139,125 @@ function extractCategories(
     }
   });
 
-  return Array.from(map.values());
+  return Array.from(result.values());
 }
 
-function buildTree(
-  categories: Category[]
-): Category[] {
-  const byUrl = new Map<string, Category>();
+async function crawlCategory(
+  url: string,
+  visited: Set<string>,
+  depth: number
+): Promise<Category> {
+  if (visited.has(url)) {
+    return {
+      name: url,
+      url,
+      children: [],
+    };
+  }
 
-for (const category of categories) {
-  byUrl.set(category.url, {
-    ...category,
-    children: [],
-  });
-}
+  visited.add(url);
 
-  const result: Category[] = [];
+  const html = await fetchPage(url);
 
-  for (const category of categories) {
-    const current = byUrl.get(category.url);
+  const $ = cheerio.load(html);
 
-    if (!current) continue;
+  const heading =
+    cleanName(
+      $("h1")
+        .first()
+        .text()
+    ) || url;
 
-    /*
-     * Z URL se pokusíme určit nadřazenou kategorii.
-     *
-     * Například:
-     * /mobilni-telefony-a-apple~c731-b29
-     *
-     * patří pod:
-     * /mobilni-telefony~c731
-     */
-    const match = category.url.match(
-      /^(.*~c\d+)(?:-b\d+)?$/
+  /*
+   * Nejdříve získáme odkazy na podkategorie.
+   */
+  const children =
+    extractCategories(
+      html,
+      url
     );
 
-    if (!match) {
-      result.push(current);
+  /*
+   * Abychom při prvním testu neudělali
+   * stovky požadavků, omezíme hloubku.
+   *
+   * Jakmile ověříme, že struktura funguje,
+   * můžeme limit bezpečně zvýšit.
+   */
+  if (depth >= 4) {
+    return {
+      name: heading,
+      url,
+      children: [],
+    };
+  }
+
+  const crawledChildren: Category[] = [];
+
+  for (const child of children) {
+    if (visited.has(child.url)) {
       continue;
     }
 
-    const parentUrl = match[1];
+    try {
+      const fullChild =
+        await crawlCategory(
+          child.url,
+          visited,
+          depth + 1
+        );
 
-    if (
-      parentUrl !== category.url &&
-      byUrl.has(parentUrl)
-    ) {
-      byUrl.get(parentUrl)!.children.push(current);
-    } else {
-      result.push(current);
+      crawledChildren.push(
+        fullChild
+      );
+    } catch (error) {
+      console.error(
+        `Kategorie ${child.url} se nepodařila načíst:`,
+        error
+      );
+
+      crawledChildren.push(child);
     }
   }
 
-  return result;
+  return {
+    name: heading,
+    url,
+    children: crawledChildren,
+  };
 }
 
 export async function GET() {
   try {
-    const response = await fetch(
-      BASE_URL,
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-          Accept:
-            "text/html,application/xhtml+xml",
-        },
-        cache: "no-store",
+    const visited = new Set<string>();
+
+    const categories: Category[] = [];
+
+    for (const path of ROOT_CATEGORIES) {
+      const url =
+        absoluteUrl(path);
+
+      try {
+        const category =
+          await crawlCategory(
+            url,
+            visited,
+            0
+          );
+
+        categories.push(category);
+      } catch (error) {
+        console.error(
+          `Hlavní kategorie ${url} se nepodařila načíst:`,
+          error
+        );
       }
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `OdKarla odpověděla HTTP ${response.status}`
-      );
     }
-
-    const html = await response.text();
-
-    const categories =
-      extractCategories(html);
-
-    const tree = buildTree(categories);
 
     return NextResponse.json({
       success: true,
       count: categories.length,
-      categories: tree,
+      categories,
     });
   } catch (error) {
     console.error(
