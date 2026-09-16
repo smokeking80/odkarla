@@ -17,6 +17,7 @@ type ItemRow = {
   last_checked_at: string;
   last_notified_at: string | null;
   watch_price: boolean;
+  target_price: number | null;
   keyword: string;
 };
 
@@ -47,6 +48,7 @@ export async function GET(
       found_items.last_checked_at,
       found_items.last_notified_at,
       found_items.watch_price,
+      found_items.target_price,
       watches.keyword
     FROM found_items
     JOIN watches
