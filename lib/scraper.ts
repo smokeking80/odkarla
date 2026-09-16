@@ -517,6 +517,449 @@ function findCategory(
     );
 
   /*
+   * Pokud uživatel zadal pouze značku:
+   *
+   * Dreo
+   * Samsung
+   * Lenovo
+   *
+   * nechceme žádný kategorický filtr.
+   */
+  if (!categoryQuery) {
+    return null;
+  }
+
+  const queryWords =
+    categoryQuery
+      .split(" ")
+      .filter(
+        (word) => word.length >= 3
+      );
+
+  if (queryWords.length === 0) {
+    return null;
+  }
+
+  /*
+   * Jednoduché porovnání českých tvarů.
+   *
+   * Například:
+   *
+   * ventilator  -> ventilator
+   * ventilatory -> ventilator
+   *
+   * teplovzdusny -> teplovzdusn
+   * teplovzdusne -> teplovzdusn
+   *
+   * Díky tomu poznáme, že:
+   *
+   * "ventilatory"
+   *
+   * přesně odpovídá kategorii:
+   *
+   * "Ventilátory"
+   *
+   * a nebudeme automaticky vybírat:
+   *
+   * "Teplovzdušné ventilátory".
+   */
+  function normalizeCategoryWord(
+    word: string
+  ): string {
+    let value =
+      normalizeText(word);
+
+    if (value.length <= 5) {
+      return value;
+    }
+
+    if (value.endsWith("y")) {
+      value = value.slice(0, -1);
+    }
+
+    if (value.endsWith("e")) {
+      value = value.slice(0, -1);
+    }
+
+    return value;
+  }
+
+  function categoryWordMatches(
+    categoryWord: string,
+    queryWord: string
+  ): boolean {
+    const categoryNormalized =
+      normalizeCategoryWord(
+        categoryWord
+      );
+
+    const queryNormalized =
+      normalizeCategoryWord(
+        queryWord
+      );
+
+    return (
+      categoryNormalized ===
+      queryNormalized
+    );
+  }
+
+  function categoryMatchCount(
+    category: string
+  ): number {
+    const categoryWords =
+      normalizeText(category)
+        .split(" ")
+        .filter(Boolean);
+
+    let matches = 0;
+
+    for (const queryWord of queryWords) {
+      if (
+        categoryWords.some(
+          (categoryWord) =>
+            categoryWordMatches(
+              categoryWord,
+              queryWord
+            )
+        )
+      ) {
+        matches++;
+      }
+    }
+
+    return matches;
+  }
+
+  function categoryIsExactPhrase(
+    category: string
+  ): boolean {
+    const categoryWords =
+      normalizeText(category)
+        .split(" ")
+        .filter(Boolean);
+
+    if (
+      categoryWords.length !==
+      queryWords.length
+    ) {
+      return false;
+    }
+
+    return queryWords.every(
+      (queryWord, index) =>
+        categoryWordMatches(
+          categoryWords[index],
+          queryWord
+        )
+    );
+  }
+
+  const quickHits =
+    getQuickSearchHits(data);
+
+  const quickCategories =
+    quickHits
+      .filter(
+        (hit) =>
+          !hit.type ||
+          normalizeText(hit.type) ===
+            "category"
+      )
+      .map(getQuickSearchTitle)
+      .filter(
+        (
+          value
+        ): value is string =>
+          Boolean(value)
+      );
+
+  /*
+   * Z produktů vytvoříme důkaz,
+   * jaké kategorie skutečně obsahují
+   * relevantní výsledky.
+   */
+  const categoryScores =
+    new Map<
+      string,
+      {
+        matches: number;
+        score: number;
+      }
+    >();
+
+  const relevantHits =
+    (
+      data.results?.hits ?? []
+    ).slice(0, 24);
+
+  for (const hit of relevantHits) {
+    const product =
+      convertHit(hit);
+
+    if (!product) {
+      continue;
+    }
+
+    const relevance =
+      Math.max(
+        1,
+        scoreProduct(
+          product.name,
+          keyword
+        )
+      );
+
+    for (const category of getCategoryValues(
+      hit
+    )) {
+      const matches =
+        categoryMatchCount(
+          category
+        );
+
+      if (matches === 0) {
+        continue;
+      }
+
+      const existing =
+        categoryScores.get(
+          category
+        ) ?? {
+          matches: 0,
+          score: 0,
+        };
+
+      existing.matches =
+        Math.max(
+          existing.matches,
+          matches
+        );
+
+      existing.score +=
+        relevance * matches;
+
+      categoryScores.set(
+        category,
+        existing
+      );
+    }
+  }
+
+  /*
+   * Nejdůležitější část:
+   *
+   * Pokud je dotaz:
+   *
+   * ventilatory
+   *
+   * a máme:
+   *
+   * Ventilátory
+   * Teplovzdušné ventilátory
+   *
+   * obě kategorie mají slovo ventilátory,
+   * ale "Ventilátory" je přesná shoda
+   * celého dotazu.
+   *
+   * Proto ji vybereme.
+   */
+  const exactCategories =
+    Array.from(
+      categoryScores.keys()
+    ).filter(
+      category =>
+        categoryIsExactPhrase(
+          category
+        )
+    );
+
+  if (
+    exactCategories.length > 0
+  ) {
+    exactCategories.sort(
+      (a, b) =>
+        normalizeText(a).length -
+        normalizeText(b).length
+    );
+
+    return exactCategories[0];
+  }
+
+  /*
+   * Pokud je dotaz například:
+   *
+   * teplovzdusny ventilator
+   *
+   * najdeme:
+   *
+   * Teplovzdušné ventilátory
+   *
+   * protože obsahuje oba významové
+   * výrazy dotazu.
+   */
+  const scoredCategories =
+    Array.from(
+      categoryScores.entries()
+    ).sort((a, b) => {
+      const matchDifference =
+        b[1].matches -
+        a[1].matches;
+
+      if (matchDifference !== 0) {
+        return matchDifference;
+      }
+
+      const scoreDifference =
+        b[1].score -
+        a[1].score;
+
+      if (scoreDifference !== 0) {
+        return scoreDifference;
+      }
+
+      /*
+       * Při stejné shodě preferujeme
+       * kratší název kategorie.
+       *
+       * Ventilátory
+       * před
+       * Teplovzdušné ventilátory
+       */
+      return (
+        normalizeText(a[0]).length -
+        normalizeText(b[0]).length
+      );
+    });
+
+  if (
+    scoredCategories.length > 0
+  ) {
+    return scoredCategories[0][0];
+  }
+
+  /*
+   * Fallback na LuigiBox quicksearch.
+   */
+  const matchingQuickCategories =
+    quickCategories
+      .filter(
+        (category) =>
+          categoryMatchCount(
+            category
+          ) > 0
+      )
+      .sort((a, b) => {
+        const aExact =
+          categoryIsExactPhrase(
+            a
+          );
+
+        const bExact =
+          categoryIsExactPhrase(
+            b
+          );
+
+        if (aExact && !bExact) {
+          return -1;
+        }
+
+        if (!aExact && bExact) {
+          return 1;
+        }
+
+        const matchDifference =
+          categoryMatchCount(b) -
+          categoryMatchCount(a);
+
+        if (matchDifference !== 0) {
+          return matchDifference;
+        }
+
+        return (
+          normalizeText(a).length -
+          normalizeText(b).length
+        );
+      });
+
+  if (
+    matchingQuickCategories.length > 0
+  ) {
+    return matchingQuickCategories[0];
+  }
+
+  /*
+   * Pro dotazy typu:
+   *
+   * iPhone
+   * iPhone 7
+   * Galaxy S21
+   *
+   * nemusí být název kategorie
+   * přímo v dotazu.
+   *
+   * V takovém případě použijeme
+   * nejčastější kategorii relevantních
+   * produktů.
+   */
+  const productCategoryScores =
+    new Map<string, number>();
+
+  for (const hit of relevantHits) {
+    const product =
+      convertHit(hit);
+
+    if (!product?.category) {
+      continue;
+    }
+
+    const relevance =
+      Math.max(
+        1,
+        scoreProduct(
+          product.name,
+          keyword
+        )
+      );
+
+    productCategoryScores.set(
+      product.category,
+      (
+        productCategoryScores.get(
+          product.category
+        ) ?? 0
+      ) + relevance
+    );
+  }
+
+  const productCategories =
+    Array.from(
+      productCategoryScores.entries()
+    ).sort(
+      (a, b) => b[1] - a[1]
+    );
+
+  if (
+    productCategories.length > 0
+  ) {
+    const top =
+      productCategories[0];
+
+    const second =
+      productCategories[1];
+
+    if (
+      !second ||
+      top[1] >= second[1] * 1.8
+    ) {
+      return top[0];
+    }
+  }
+
+  return null;
+}
+
+  /*
    * Samotná značka znamená:
    *
    * Dreo
