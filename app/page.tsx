@@ -472,11 +472,11 @@ function ProductItem({
   onRemoved: (itemId: number) => void;
 }) {
   const currentPrice = item.last_price;
-  const [targetPrice, setTargetPrice] = useState(
-    item.target_price !== null
-      ? String(item.target_price)
-      : ""
-  );
+  const [targetPriceInput, setTargetPriceInput] = useState(
+  item.target_price !== null
+    ? String(item.target_price)
+    : ""
+);
   const [targetPriceLoading, setTargetPriceLoading] =
     useState(false);
 
