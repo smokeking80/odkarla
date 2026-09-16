@@ -147,6 +147,56 @@ function WatchCard({
     }
   }
 
+  async function bulkWatchPrice(watchPrice: boolean) {
+    if (selectedIds.length === 0 || bulkLoading) {
+      return;
+    }
+
+    setBulkLoading(true);
+
+    try {
+      const res = await fetch(
+        `/api/watches/${watch.id}/items/bulk-watch`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            item_ids: selectedIds,
+            watch_price: watchPrice,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(
+          data?.error ||
+            "Vybraným položkám se nepodařilo změnit hlídání ceny."
+        );
+        return;
+      }
+
+      setItems((current) =>
+        current
+          ? current.map((item) =>
+              selectedIds.includes(item.id)
+                ? { ...item, watch_price: watchPrice }
+                : item
+            )
+          : current
+      );
+    } catch (error) {
+      console.error(error);
+      alert(
+        "Vybraným položkám se nepodařilo změnit hlídání ceny."
+      );
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
   const allItems = items ?? [];
 
   const underTarget =
@@ -273,6 +323,36 @@ function WatchCard({
                             ? ` (${selectedIds.length})`
                             : ""
                         }`}
+                  </button>
+
+                  <button
+                    className="secondary"
+                    onClick={() => bulkWatchPrice(true)}
+                    disabled={
+                      selectedIds.length === 0 ||
+                      bulkLoading
+                    }
+                    style={{
+                      opacity:
+                        selectedIds.length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    🔔 Zapnout vybrané
+                  </button>
+
+                  <button
+                    className="secondary"
+                    onClick={() => bulkWatchPrice(false)}
+                    disabled={
+                      selectedIds.length === 0 ||
+                      bulkLoading
+                    }
+                    style={{
+                      opacity:
+                        selectedIds.length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    🔕 Vypnout vybrané
                   </button>
                 </div>
               </div>
