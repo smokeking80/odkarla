@@ -30,6 +30,8 @@ function WatchCard({
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Item[] | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   async function toggle() {
     if (!open) {
@@ -42,6 +44,8 @@ function WatchCard({
       } else {
         setItems(await res.json());
       }
+
+      setSelectedIds([]);
     }
 
     setOpen(!open);
@@ -64,10 +68,7 @@ function WatchCard({
       current
         ? current.map((item) =>
             item.id === itemId
-              ? {
-                  ...item,
-                  watch_price: watchPrice,
-                }
+              ? { ...item, watch_price: watchPrice }
               : item
           )
         : current
@@ -76,10 +77,74 @@ function WatchCard({
 
   function removeItemFromList(itemId: number) {
     setItems((current) =>
-      current
-        ? current.filter((item) => item.id !== itemId)
-        : current
+      current ? current.filter((item) => item.id !== itemId) : current
     );
+
+    setSelectedIds((current) =>
+      current.filter((id) => id !== itemId)
+    );
+  }
+
+  function toggleSelected(itemId: number) {
+    setSelectedIds((current) =>
+      current.includes(itemId)
+        ? current.filter((id) => id !== itemId)
+        : [...current, itemId]
+    );
+  }
+
+  async function bulkDelete() {
+    if (selectedIds.length === 0 || bulkLoading) {
+      return;
+    }
+
+    const count = selectedIds.length;
+
+    if (!confirm(`Opravdu odstranit ${count} vybraných položek?`)) {
+      return;
+    }
+
+    setBulkLoading(true);
+
+    try {
+      const res = await fetch(
+        `/api/watches/${watch.id}/items/bulk`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            item_ids: selectedIds,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(
+          data?.error ||
+            "Vybrané položky se nepodařilo odstranit."
+        );
+        return;
+      }
+
+      setItems((current) =>
+        current
+          ? current.filter(
+              (item) => !selectedIds.includes(item.id)
+            )
+          : current
+      );
+
+      setSelectedIds([]);
+      await onDeleted();
+    } catch (error) {
+      console.error(error);
+      alert("Vybrané položky se nepodařilo odstranit.");
+    } finally {
+      setBulkLoading(false);
+    }
   }
 
   const allItems = items ?? [];
@@ -102,6 +167,10 @@ function WatchCard({
         )
       : [];
 
+  const allSelected =
+    allItems.length > 0 &&
+    selectedIds.length === allItems.length;
+
   return (
     <div className="watch-card">
       <div className="watch-header">
@@ -112,28 +181,16 @@ function WatchCard({
             {watch.max_price !== null
               ? `cíl: do ${watch.max_price} Kč · `
               : ""}
-
             {watch.item_count} nalezených položek
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-          }}
-        >
-          <button
-            className="secondary"
-            onClick={toggle}
-          >
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="secondary" onClick={toggle}>
             {open ? "Skrýt" : "Zobrazit"}
           </button>
 
-          <button
-            className="secondary"
-            onClick={remove}
-          >
+          <button className="secondary" onClick={remove}>
             Smazat
           </button>
         </div>
@@ -142,92 +199,171 @@ function WatchCard({
       {open && (
         <div className="items">
           {items === null ? (
-            <p className="empty">
-              Načítám výsledky…
-            </p>
+            <p className="empty">Načítám výsledky…</p>
           ) : items.length === 0 ? (
-            <p className="empty">
-              Zatím nic nenalezeno.
-            </p>
-          ) : watch.max_price === null ? (
-            <div>
-              <div className="items-title">
-                Všechny nalezené položky
-              </div>
-
-              {allItems.map((item) => (
-                <ProductItem
-                  key={item.id}
-                  item={item}
-                  onWatchChanged={updateItemWatchPrice}
-                  onRemoved={removeItemFromList}
-                />
-              ))}
-            </div>
+            <p className="empty">Zatím nic nenalezeno.</p>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(320px, 1fr))",
-                gap: 24,
-              }}
-            >
-              <div>
-                <div
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  marginBottom: 18,
+                  paddingBottom: 14,
+                  borderBottom:
+                    "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <label
                   style={{
-                    fontSize: 20,
-                    fontWeight: 700,
-                    marginBottom: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    fontWeight: 600,
                   }}
                 >
-                  🟢 Do {watch.max_price} Kč
-                </div>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={() => {
+                      if (allSelected) {
+                        setSelectedIds([]);
+                      } else {
+                        setSelectedIds(
+                          allItems.map((item) => item.id)
+                        );
+                      }
+                    }}
+                  />
+                  Vybrat vše
+                </label>
 
-                {underTarget.length === 0 ? (
-                  <p className="empty">
-                    Zatím žádná položka pod cílovou cenou.
-                  </p>
-                ) : (
-                  underTarget.map((item) => (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span style={{ opacity: 0.75 }}>
+                    Vybráno: {selectedIds.length}
+                  </span>
+
+                  <button
+                    className="secondary"
+                    onClick={bulkDelete}
+                    disabled={
+                      selectedIds.length === 0 ||
+                      bulkLoading
+                    }
+                    style={{
+                      opacity:
+                        selectedIds.length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    {bulkLoading
+                      ? "Mažu…"
+                      : `🗑️ Smazat vybrané${
+                          selectedIds.length > 0
+                            ? ` (${selectedIds.length})`
+                            : ""
+                        }`}
+                  </button>
+                </div>
+              </div>
+
+              {watch.max_price === null ? (
+                <div>
+                  <div className="items-title">
+                    Všechny nalezené položky
+                  </div>
+
+                  {allItems.map((item) => (
                     <ProductItem
                       key={item.id}
                       item={item}
-                      targetPrice={watch.max_price}
+                      selected={selectedIds.includes(item.id)}
+                      onSelected={toggleSelected}
                       onWatchChanged={updateItemWatchPrice}
                       onRemoved={removeItemFromList}
                     />
-                  ))
-                )}
-              </div>
-
-              <div>
+                  ))}
+                </div>
+              ) : (
                 <div
                   style={{
-                    fontSize: 20,
-                    fontWeight: 700,
-                    marginBottom: 12,
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(320px, 1fr))",
+                    gap: 24,
                   }}
                 >
-                  🟠 Nad {watch.max_price} Kč
-                </div>
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 700,
+                        marginBottom: 12,
+                      }}
+                    >
+                      🟢 Do {watch.max_price} Kč
+                    </div>
 
-                {overTarget.length === 0 ? (
-                  <p className="empty">
-                    Žádná položka nad cílovou cenou.
-                  </p>
-                ) : (
-                  overTarget.map((item) => (
-                    <ProductItem
-                      key={item.id}
-                      item={item}
-                      targetPrice={watch.max_price}
-                      onWatchChanged={updateItemWatchPrice}
-                      onRemoved={removeItemFromList}
-                    />
-                  ))
-                )}
-              </div>
+                    {underTarget.length === 0 ? (
+                      <p className="empty">
+                        Zatím žádná položka pod cílovou cenou.
+                      </p>
+                    ) : (
+                      underTarget.map((item) => (
+                        <ProductItem
+                          key={item.id}
+                          item={item}
+                          targetPrice={watch.max_price}
+                          selected={selectedIds.includes(item.id)}
+                          onSelected={toggleSelected}
+                          onWatchChanged={updateItemWatchPrice}
+                          onRemoved={removeItemFromList}
+                        />
+                      ))
+                    )}
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 700,
+                        marginBottom: 12,
+                      }}
+                    >
+                      🟠 Nad {watch.max_price} Kč
+                    </div>
+
+                    {overTarget.length === 0 ? (
+                      <p className="empty">
+                        Žádná položka nad cílovou cenou.
+                      </p>
+                    ) : (
+                      overTarget.map((item) => (
+                        <ProductItem
+                          key={item.id}
+                          item={item}
+                          targetPrice={watch.max_price}
+                          selected={selectedIds.includes(item.id)}
+                          onSelected={toggleSelected}
+                          onWatchChanged={updateItemWatchPrice}
+                          onRemoved={removeItemFromList}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -239,11 +375,15 @@ function WatchCard({
 function ProductItem({
   item,
   targetPrice,
+  selected,
+  onSelected,
   onWatchChanged,
   onRemoved,
 }: {
   item: Item;
   targetPrice?: number | null;
+  selected: boolean;
+  onSelected: (itemId: number) => void;
   onWatchChanged: (
     itemId: number,
     watchPrice: boolean
@@ -274,7 +414,6 @@ function ProductItem({
     }
 
     const desiredWatchPrice = !item.watch_price;
-
     setWatchingLoading(true);
 
     try {
@@ -311,11 +450,7 @@ function ProductItem({
   }
 
   async function removeItem() {
-    if (
-      !confirm(
-        `Odstranit položku "${item.name}"?`
-      )
-    ) {
+    if (!confirm(`Odstranit položku "${item.name}"?`)) {
       return;
     }
 
@@ -327,9 +462,7 @@ function ProductItem({
     );
 
     if (!res.ok) {
-      alert(
-        "Položku se nepodařilo odstranit."
-      );
+      alert("Položku se nepodařilo odstranit.");
       return;
     }
 
@@ -346,6 +479,19 @@ function ProductItem({
         gap: 16,
       }}
     >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={() => onSelected(item.id)}
+        style={{
+          flexShrink: 0,
+          width: 18,
+          height: 18,
+          cursor: "pointer",
+        }}
+        aria-label={`Vybrat ${item.name}`}
+      />
+
       <div style={{ flex: 1 }}>
         <a
           href={item.product_url}
@@ -366,17 +512,16 @@ function ProductItem({
           </div>
         )}
 
-        {!newlyUnderTarget &&
-          priceDropped && (
-            <div
-              style={{
-                fontSize: 13,
-                marginTop: 4,
-              }}
-            >
-              📉 Zlevnilo
-            </div>
-          )}
+        {!newlyUnderTarget && priceDropped && (
+          <div
+            style={{
+              fontSize: 13,
+              marginTop: 4,
+            }}
+          >
+            📉 Zlevnilo
+          </div>
+        )}
       </div>
 
       <span className="price">
@@ -391,15 +536,15 @@ function ProductItem({
         disabled={watchingLoading}
         title={
           item.watch_price
-  ? "Zrušit hlídání ceny"
-  : "Zapnout hlídání ceny"
+            ? "Zrušit hlídání ceny"
+            : "Zapnout hlídání ceny"
         }
       >
         {watchingLoading
-  ? "…"
-  : item.watch_price
-    ? "🔔"
-    : "🔕"}
+          ? "…"
+          : item.watch_price
+          ? "🔔"
+          : "🔕"}
       </button>
 
       <button
@@ -412,8 +557,6 @@ function ProductItem({
     </div>
   );
 }
-
-  
 
 export default function Home() {
   const [watches, setWatches] = useState<Watch[]>(
