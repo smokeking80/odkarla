@@ -63,6 +63,11 @@ await sql`
   ALTER TABLE found_items
   ADD COLUMN IF NOT EXISTS target_price INTEGER;
 `;
+  
+   await sql`
+   ALTER TABLE found_items
+   ADD COLUMN IF NOT EXISTS target_reached_at TIMESTAMPTZ;
+  `;
 
   await sql`
   CREATE TABLE IF NOT EXISTS deleted_items (
