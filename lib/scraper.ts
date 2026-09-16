@@ -24,11 +24,23 @@ type LuigiHit = {
   };
 };
 
+type LuigiQuickSearchHit = {
+  type?: string;
+  url?: string;
+  attributes?: {
+    title?: string;
+    name?: string;
+  };
+};
+
 type LuigiResponse = {
   results?: {
     hits?: LuigiHit[];
     total_hits?: number;
     facets?: unknown[];
+    quicksearch_hits?:
+      | LuigiQuickSearchHit[]
+      | Record<string, LuigiQuickSearchHit[]>;
   };
   next_page?: number | null;
 };
@@ -187,6 +199,28 @@ function getFirstString(
     : null;
 }
 
+function getLastString(
+  value: unknown
+): string | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const strings = value.filter(
+    (item) =>
+      typeof item === "string" &&
+      item.trim() !== ""
+  );
+
+  if (strings.length === 0) {
+    return null;
+  }
+
+  return String(
+    strings[strings.length - 1]
+  ).trim();
+}
+
 function getPrice(
   value: unknown
 ): number | null {
@@ -232,17 +266,11 @@ function convertHit(
   }
 
   const category =
-    getFirstString(
+    getLastString(
       attributes.category
     ) ??
-    (
-      Array.isArray(
-        attributes.all_categories
-      )
-        ? attributes.all_categories.join(
-            " → "
-          )
-        : null
+    getLastString(
+      attributes.all_categories
     );
 
   return {
@@ -268,7 +296,9 @@ function convertHit(
 }
 
 function buildLuigiBoxUrl(
-  keyword: string
+  keyword: string,
+  filters: string[] = [],
+  includeQuickSearch = false
 ): string {
   const url =
     new URL(
@@ -295,22 +325,17 @@ function buildLuigiBoxUrl(
     "availability:1"
   );
 
-  const normalizedKeyword =
-    normalizeText(keyword);
-
-  if (
-    normalizedKeyword.includes(
-      "iphone"
-    )
-  ) {
+  for (const filter of filters) {
     url.searchParams.append(
       "f[]",
-      "category:Mobilní telefony"
+      filter
     );
+  }
 
-    url.searchParams.append(
-      "f[]",
-      "brand:Apple"
+  if (includeQuickSearch) {
+    url.searchParams.set(
+      "quicksearch_types",
+      "category,brand"
     );
   }
 
@@ -350,34 +375,268 @@ async function fetchLuigiBox(
   return response.json();
 }
 
-export async function scrapeSearchPage(
-  _url: string,
+function getQuickSearchHits(
+  data: LuigiResponse
+): LuigiQuickSearchHit[] {
+  const value =
+    data.results?.quicksearch_hits;
+
+  if (!value) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null
+  ) {
+    const result: LuigiQuickSearchHit[] = [];
+
+    for (const entry of Object.values(value)) {
+      if (Array.isArray(entry)) {
+        result.push(...entry);
+      }
+    }
+
+    return result;
+  }
+
+  return [];
+}
+
+function getQuickSearchTitle(
+  hit: LuigiQuickSearchHit
+): string | null {
+  const title =
+    hit.attributes?.title ??
+    hit.attributes?.name ??
+    "";
+
+  return title.trim() || null;
+}
+
+function findCategory(
+  keyword: string,
+  products: ScrapedProduct[],
+  data: LuigiResponse
+): string | null {
+  const quickHits =
+    getQuickSearchHits(data);
+
+  const quickCategories =
+    quickHits
+      .filter(
+        (hit) =>
+          !hit.type ||
+          normalizeText(hit.type) ===
+            "category"
+      )
+      .map(getQuickSearchTitle)
+      .filter(
+        (
+          value
+        ): value is string =>
+          Boolean(value)
+      );
+
+  const categoryScores =
+    new Map<string, number>();
+
+  const relevantProducts =
+    products
+      .slice(0, 24)
+      .map((product) => ({
+        product,
+        score: Math.max(
+          1,
+          scoreProduct(
+            product.name,
+            keyword
+          )
+        ),
+      }));
+
+  for (const {
+    product,
+    score,
+  } of relevantProducts) {
+    if (!product.category) {
+      continue;
+    }
+
+    const category =
+      product.category.trim();
+
+    if (!category) {
+      continue;
+    }
+
+    categoryScores.set(
+      category,
+      (categoryScores.get(category) ?? 0) +
+        score
+    );
+  }
+
+  if (
+    quickCategories.length > 0
+  ) {
+    const matchingQuick =
+      quickCategories
+        .filter((category) =>
+          categoryScores.has(category)
+        )
+        .sort(
+          (a, b) =>
+            (categoryScores.get(b) ?? 0) -
+            (categoryScores.get(a) ?? 0)
+        );
+
+    if (matchingQuick.length > 0) {
+      return matchingQuick[0];
+    }
+
+    return quickCategories[0];
+  }
+
+  if (categoryScores.size === 0) {
+    return null;
+  }
+
+  const sorted =
+    Array.from(
+      categoryScores.entries()
+    ).sort(
+      (a, b) => b[1] - a[1]
+    );
+
+  const top = sorted[0];
+  const second = sorted[1];
+
+  if (
+    !second ||
+    top[1] >= second[1] * 1.15
+  ) {
+    return top[0];
+  }
+
+  return null;
+}
+
+function findBrand(
+  keyword: string,
+  products: ScrapedProduct[],
+  data: LuigiResponse
+): string | null {
+  const normalizedKeyword =
+    normalizeText(keyword);
+
+  const quickHits =
+    getQuickSearchHits(data);
+
+  const quickBrands =
+    quickHits
+      .filter(
+        (hit) =>
+          !hit.type ||
+          normalizeText(hit.type) ===
+            "brand"
+      )
+      .map(getQuickSearchTitle)
+      .filter(
+        (
+          value
+        ): value is string =>
+          Boolean(value)
+      );
+
+  for (const brand of quickBrands) {
+    const normalizedBrand =
+      normalizeText(brand);
+
+    if (
+      normalizedBrand &&
+      normalizedKeyword.includes(
+        normalizedBrand
+      )
+    ) {
+      return brand;
+    }
+  }
+
+  const brandScores =
+    new Map<string, number>();
+
+  const relevantProducts =
+    products
+      .slice(0, 24)
+      .map((product) => ({
+        product,
+        score: Math.max(
+          1,
+          scoreProduct(
+            product.name,
+            keyword
+          )
+        ),
+      }));
+
+  for (const {
+    product,
+    score,
+  } of relevantProducts) {
+    if (!product.brand) {
+      continue;
+    }
+
+    const brand =
+      product.brand.trim();
+
+    if (!brand) {
+      continue;
+    }
+
+    brandScores.set(
+      brand,
+      (brandScores.get(brand) ?? 0) +
+        score
+    );
+  }
+
+  if (brandScores.size === 0) {
+    return null;
+  }
+
+  const sorted =
+    Array.from(
+      brandScores.entries()
+    ).sort(
+      (a, b) => b[1] - a[1]
+    );
+
+  const top = sorted[0];
+  const second = sorted[1];
+
+  if (
+    top[1] >= 60 &&
+    (!second ||
+      top[1] >= second[1] * 1.8)
+  ) {
+    return top[0];
+  }
+
+  return null;
+}
+
+function prepareProducts(
+  data: LuigiResponse,
   keyword: string
-): Promise<ScrapedProduct[]> {
-  const searchUrl =
-    buildLuigiBoxUrl(keyword);
-
-  console.error(
-    `LUIGISBOX DEBUG: hledám "${keyword}"`
-  );
-
-  console.error(
-    `LUIGISBOX DEBUG: URL ${searchUrl}`
-  );
-
-  const data =
-    await fetchLuigiBox(searchUrl);
-
+): ScrapedProduct[] {
   const hits =
     data.results?.hits ?? [];
-
-  console.error(
-    `LUIGISBOX DEBUG: celkem výsledků=${data.results?.total_hits ?? 0}`
-  );
-
-  console.error(
-    `LUIGISBOX DEBUG: stažených produktů=${hits.length}`
-  );
 
   const products: ScrapedProduct[] = [];
 
@@ -390,12 +649,6 @@ export async function scrapeSearchPage(
     }
 
     products.push(product);
-
-    console.error(
-      `LUIGISBOX PRODUKT: ${product.name} | ${
-        product.price ?? "?"
-      } Kč`
-    );
   }
 
   const uniqueProducts =
@@ -431,9 +684,186 @@ export async function scrapeSearchPage(
       )
   );
 
+  return uniqueList;
+}
+
+export async function scrapeSearchPage(
+  _url: string,
+  keyword: string
+): Promise<ScrapedProduct[]> {
   console.error(
-    `LUIGISBOX DEBUG: unikátních produktů=${uniqueList.length}`
+    `LUIGISBOX DEBUG: hledám "${keyword}"`
   );
 
-  return uniqueList;
+  /*
+   * 1. fáze:
+   * Nejdřív necháme LuigiBox vrátit běžné
+   * produkty + rychlé výsledky kategorií
+   * a výrobců.
+   */
+  const discoveryUrl =
+    buildLuigiBoxUrl(
+      keyword,
+      [],
+      true
+    );
+
+  console.error(
+    `LUIGISBOX DISCOVERY URL: ${discoveryUrl}`
+  );
+
+  const discoveryData =
+    await fetchLuigiBox(
+      discoveryUrl
+    );
+
+  const discoveryProducts =
+    prepareProducts(
+      discoveryData,
+      keyword
+    );
+
+  console.error(
+    `LUIGISBOX DISCOVERY: výsledků=${
+      discoveryData.results
+        ?.total_hits ?? 0
+    }`
+  );
+
+  console.error(
+    `LUIGISBOX DISCOVERY: produktů=${
+      discoveryProducts.length
+    }`
+  );
+
+  /*
+   * 2. fáze:
+   * Z výsledků automaticky odhadneme
+   * nejvhodnější kategorii a výrobce.
+   */
+  const category =
+    findCategory(
+      keyword,
+      discoveryProducts,
+      discoveryData
+    );
+
+  const brand =
+    findBrand(
+      keyword,
+      discoveryProducts,
+      discoveryData
+    );
+
+  console.error(
+    `LUIGISBOX FILTER: category=${
+      category ?? "-"
+    } | brand=${
+      brand ?? "-"
+    }`
+  );
+
+  const filters: string[] = [];
+
+  if (category) {
+    filters.push(
+      `category:${category}`
+    );
+  }
+
+  if (brand) {
+    filters.push(
+      `brand:${brand}`
+    );
+  }
+
+  /*
+   * Pokud jsme nic rozumného nezjistili,
+   * použijeme rovnou výsledky první fáze.
+   */
+  if (filters.length === 0) {
+    console.error(
+      "LUIGISBOX: žádný přesný filtr nebyl nalezen."
+    );
+
+    for (const product of discoveryProducts) {
+      console.error(
+        `LUIGISBOX PRODUKT: ${
+          product.name
+        } | ${
+          product.price ?? "?"
+        } Kč`
+      );
+    }
+
+    return discoveryProducts;
+  }
+
+  /*
+   * 3. fáze:
+   * Provedeme druhý, přesnější dotaz
+   * s automaticky nalezenými filtry.
+   */
+  const filteredUrl =
+    buildLuigiBoxUrl(
+      keyword,
+      filters,
+      false
+    );
+
+  console.error(
+    `LUIGISBOX FILTERED URL: ${filteredUrl}`
+  );
+
+  const filteredData =
+    await fetchLuigiBox(
+      filteredUrl
+    );
+
+  const filteredProducts =
+    prepareProducts(
+      filteredData,
+      keyword
+    );
+
+  console.error(
+    `LUIGISBOX FILTERED: výsledků=${
+      filteredData.results
+        ?.total_hits ?? 0
+    }`
+  );
+
+  console.error(
+    `LUIGISBOX FILTERED: produktů=${
+      filteredProducts.length
+    }`
+  );
+
+  /*
+   * Bezpečnostní pojistka:
+   * Pokud příliš přesný filtr vrátí nulu,
+   * nevrátíme prázdný výsledek.
+   */
+  if (
+    filteredProducts.length === 0 &&
+    discoveryProducts.length > 0
+  ) {
+    console.error(
+      "LUIGISBOX: přesný filtr vrátil 0 produktů, používám výsledky discovery."
+    );
+
+    return discoveryProducts;
+  }
+
+  for (const product of filteredProducts) {
+    console.error(
+      `LUIGISBOX PRODUKT: ${
+        product.name
+      } | ${
+        product.price ?? "?"
+      } Kč`
+    );
+  }
+
+  return filteredProducts;
 }
