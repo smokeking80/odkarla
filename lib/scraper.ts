@@ -988,11 +988,8 @@ function findBrand(
       );
 
   /*
-   * Výrobce přímo v dotazu:
-   *
-   * Dreo ventilátor
-   * Samsung lednice
-   * Lenovo notebook
+   * Nejdříve zkusíme značku z quicksearch.
+   * To funguje například pro Dreo nebo Samsung.
    */
   for (const brand of quickBrands) {
     const normalizedBrand =
@@ -1004,31 +1001,31 @@ function findBrand(
         normalizedBrand
       )
     ) {
+      console.error(
+        `LUIGISBOX BRAND: značka z quicksearch = ${brand}`
+      );
+
       return brand;
     }
   }
 
-  const brandScores =
+  /*
+   * Důležitá pojistka:
+   * pokud je značka přímo součástí názvů
+   * relevantních produktů a zároveň je napsaná
+   * v hledaném výrazu, použijeme ji.
+   *
+   * Například:
+   * Lenovo notebook
+   *
+   * V původním případě LuigiBox quicksearch
+   * Lenovo jako brand nevrátil, přestože Lenovo
+   * bylo přímo v názvech produktů.
+   */
+  const brandCandidates =
     new Map<string, number>();
 
-  const relevantProducts =
-    products
-      .slice(0, 24)
-      .map((product) => ({
-        product,
-        score: Math.max(
-          1,
-          scoreProduct(
-            product.name,
-            keyword
-          )
-        ),
-      }));
-
-  for (const {
-    product,
-    score,
-  } of relevantProducts) {
+  for (const product of products.slice(0, 24)) {
     if (!product.brand) {
       continue;
     }
@@ -1039,6 +1036,83 @@ function findBrand(
     if (!brand) {
       continue;
     }
+
+    const normalizedBrand =
+      normalizeText(brand);
+
+    if (
+      !normalizedBrand ||
+      !normalizedKeyword.includes(
+        normalizedBrand
+      )
+    ) {
+      continue;
+    }
+
+    const score =
+      Math.max(
+        1,
+        scoreProduct(
+          product.name,
+          keyword
+        )
+      );
+
+    brandCandidates.set(
+      brand,
+      (brandCandidates.get(brand) ?? 0) +
+        score
+    );
+  }
+
+  if (brandCandidates.size > 0) {
+    const sortedCandidates =
+      Array.from(
+        brandCandidates.entries()
+      ).sort(
+        (a, b) => b[1] - a[1]
+      );
+
+    console.error(
+      `LUIGISBOX BRAND: značka z produktů = ${sortedCandidates[0][0]}`
+    );
+
+    return sortedCandidates[0][0];
+  }
+
+  /*
+   * Poslední možnost:
+   * najdeme dominantního výrobce mezi relevantními
+   * produkty. To je užitečné například pro:
+   *
+   * iPhone -> Apple
+   *
+   * ale nebudeme vybírat náhodnou značku u dotazu
+   * typu "notebook".
+   */
+  const brandScores =
+    new Map<string, number>();
+
+  for (const product of products.slice(0, 24)) {
+    if (!product.brand) {
+      continue;
+    }
+
+    const brand =
+      product.brand.trim();
+
+    if (!brand) {
+      continue;
+    }
+
+    const score =
+      Math.max(
+        1,
+        scoreProduct(
+          product.name,
+          keyword
+        )
+      );
 
     brandScores.set(
       brand,
@@ -1061,19 +1135,15 @@ function findBrand(
   const top = sorted[0];
   const second = sorted[1];
 
-  /*
-   * Silný dominantní výrobce může být
-   * nalezen i když není napsaný přímo
-   * v dotazu.
-   *
-   * Například:
-   * iPhone -> Apple
-   */
   if (
     top[1] >= 60 &&
     (!second ||
       top[1] >= second[1] * 1.8)
   ) {
+    console.error(
+      `LUIGISBOX BRAND: dominantní značka = ${top[0]}`
+    );
+
     return top[0];
   }
 
