@@ -145,12 +145,21 @@ async function runScan(req: NextRequest) {
             row.watch_price === true;
 
           await sql`
-            UPDATE found_items
-            SET
-              last_price = ${product.price},
-              last_checked_at = now()
-            WHERE id = ${row.id};
-          `;
+  UPDATE found_items
+  SET
+    last_price = ${product.price},
+    last_checked_at = now(),
+    target_reached_at =
+      CASE
+        WHEN target_reached_at IS NULL
+          AND target_price IS NOT NULL
+          AND ${product.price} IS NOT NULL
+          AND ${product.price} <= target_price
+        THEN now()
+        ELSE target_reached_at
+      END
+  WHERE id = ${row.id};
+`;
 
           const droppedPrice =
             product.price != null &&
