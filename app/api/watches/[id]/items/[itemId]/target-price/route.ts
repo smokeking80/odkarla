@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
-import { ensureSchema } from "../../../../../../../../lib/db";
+import { ensureSchema } from "../../../../../../../lib/db";
 
 export async function PATCH(
   req: NextRequest,
