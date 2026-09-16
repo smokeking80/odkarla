@@ -19,6 +19,7 @@ type Item = {
   last_price: number | null;
   first_seen_at: string;
   watch_price: boolean;
+  target_price: number | null;
 };
 
 function WatchCard({
@@ -471,14 +472,87 @@ function ProductItem({
   onRemoved: (itemId: number) => void;
 }) {
   const currentPrice = item.last_price;
+  const [targetPrice, setTargetPrice] = useState(
+    item.target_price !== null
+      ? String(item.target_price)
+      : ""
+  );
+  const [targetPriceLoading, setTargetPriceLoading] =
+    useState(false);
+
+  async function saveTargetPrice() {
+    if (targetPriceLoading) {
+      return;
+    }
+
+    const value = targetPrice.trim();
+
+    if (value !== "") {
+      const parsed = Number(value);
+
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        alert("Cílová cena není platné číslo.");
+        return;
+      }
+    }
+
+    setTargetPriceLoading(true);
+
+    try {
+      const res = await fetch(
+        `/api/watches/${item.watch_id}/items/${item.id}/target-price`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            target_price:
+              value === "" ? null : Number(value),
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(
+          data?.error ||
+            "Cílovou cenu se nepodařilo uložit."
+        );
+        return;
+      }
+
+      const data = await res.json();
+
+      setTargetPrice(
+        data.target_price !== null &&
+          data.target_price !== undefined
+          ? String(data.target_price)
+          : ""
+      );
+    } catch (error) {
+      console.error(error);
+      alert("Cílovou cenu se nepodařilo uložit.");
+    } finally {
+      setTargetPriceLoading(false);
+    }
+  }
+
+
+  const effectiveTargetPrice =
+    item.target_price !== null
+      ? item.target_price
+      : targetPrice !== undefined &&
+          targetPrice !== null
+        ? targetPrice
+        : null;
 
   const newlyUnderTarget =
-    targetPrice !== undefined &&
-    targetPrice !== null &&
+    effectiveTargetPrice !== null &&
     item.first_price !== null &&
-    item.first_price > targetPrice &&
+    item.first_price > effectiveTargetPrice &&
     currentPrice !== null &&
-    currentPrice <= targetPrice;
+    currentPrice <= effectiveTargetPrice;
 
   const priceDropped =
     item.first_price !== null &&
@@ -604,11 +678,46 @@ function ProductItem({
         )}
       </div>
 
-      <span className="price">
-        {currentPrice !== null
-          ? `${currentPrice} Kč`
-          : "Cena neznámá"}
-      </span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+        }}
+      >
+        <input
+          type="number"
+          min="0"
+          value={targetPrice}
+          onChange={(e) => setTargetPrice(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              saveTargetPrice();
+            }
+          }}
+          placeholder="Cíl Kč"
+          disabled={targetPriceLoading}
+          style={{ width: 90 }}
+          title="Cílová cena pro tento produkt"
+        />
+
+        <button
+          className="secondary"
+          onClick={saveTargetPrice}
+          disabled={targetPriceLoading}
+          title="Uložit cílovou cenu"
+        >
+          {targetPriceLoading ? "…" : "🎯"}
+        </button>
+
+        <span className="price">
+          {currentPrice !== null
+            ? `${currentPrice} Kč`
+            : "Cena neznámá"}
+        </span>
+      </div>
 
       <button
         className="secondary"
