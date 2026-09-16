@@ -971,14 +971,16 @@ function findBrand(
   const quickHits =
     getQuickSearchHits(data);
 
+  /*
+   * Nejprve zkusíme značku přímo
+   * z LuigiBox quicksearch.
+   *
+   * Nejsme přísní na hodnotu "type",
+   * protože LuigiBox může v různých
+   * odpovědích vracet typ trochu jinak.
+   */
   const quickBrands =
     quickHits
-      .filter(
-        (hit) =>
-          !hit.type ||
-          normalizeText(hit.type) ===
-            "brand"
-      )
       .map(getQuickSearchTitle)
       .filter(
         (
@@ -986,6 +988,194 @@ function findBrand(
         ): value is string =>
           Boolean(value)
       );
+
+  /*
+   * Pokud je značka přímo napsaná
+   * v dotazu, je to nejsilnější důkaz.
+   *
+   * Například:
+   *
+   * Lenovo notebook
+   * Samsung lednice
+   * Dreo ventilátor
+   */
+  for (const candidate of quickBrands) {
+    const normalizedCandidate =
+      normalizeText(candidate);
+
+    if (
+      normalizedCandidate &&
+      normalizedKeyword.includes(
+        normalizedCandidate
+      )
+    ) {
+      console.error(
+        `LUIGISBOX BRAND: značka z quicksearch = ${candidate}`
+      );
+
+      return candidate;
+    }
+  }
+
+  /*
+   * Některé quicksearch výsledky mohou
+   * obsahovat více textu než pouze název
+   * značky.
+   *
+   * Proto zkusíme jednotlivá slova
+   * kandidáta proti dotazu.
+   */
+  for (const candidate of quickBrands) {
+    const candidateWords =
+      normalizeText(candidate)
+        .split(" ")
+        .filter(
+          (word) => word.length >= 3
+        );
+
+    if (
+      candidateWords.length === 1 &&
+      normalizedKeyword
+        .split(" ")
+        .includes(
+          candidateWords[0]
+        )
+    ) {
+      console.error(
+        `LUIGISBOX BRAND: značka z quicksearch = ${candidate}`
+      );
+
+      return candidate;
+    }
+  }
+
+  /*
+   * Další možnost:
+   * značka nemusí být v quicksearch,
+   * ale LuigiBox ji může mít přímo
+   * u produktů.
+   *
+   * Zohledníme pouze relevantní
+   * produkty.
+   */
+  const brandScores =
+    new Map<string, number>();
+
+  const relevantProducts =
+    products
+      .slice(0, 24)
+      .map((product) => ({
+        product,
+        score: Math.max(
+          1,
+          scoreProduct(
+            product.name,
+            keyword
+          )
+        ),
+      }));
+
+  for (const {
+    product,
+    score,
+  } of relevantProducts) {
+    if (!product.brand) {
+      continue;
+    }
+
+    const brand =
+      product.brand.trim();
+
+    if (!brand) {
+      continue;
+    }
+
+    /*
+     * Pokud je značka přímo obsažena
+     * v hledaném výrazu, dostane velký
+     * bonus.
+     */
+    const normalizedBrand =
+      normalizeText(brand);
+
+    let brandScore = score;
+
+    if (
+      normalizedKeyword.includes(
+        normalizedBrand
+      )
+    ) {
+      brandScore += 1000;
+    }
+
+    brandScores.set(
+      brand,
+      (brandScores.get(
+        brand
+      ) ?? 0) + brandScore
+    );
+  }
+
+  if (brandScores.size === 0) {
+    return null;
+  }
+
+  const sortedBrands =
+    Array.from(
+      brandScores.entries()
+    ).sort(
+      (a, b) => b[1] - a[1]
+    );
+
+  const top =
+    sortedBrands[0];
+
+  const second =
+    sortedBrands[1];
+
+  /*
+   * Pokud je značka napsaná v dotazu,
+   * můžeme jí věřit bez dalších podmínek.
+   */
+  if (
+    normalizedKeyword.includes(
+      normalizeText(top[0])
+    )
+  ) {
+    console.error(
+      `LUIGISBOX BRAND: značka z produktů = ${top[0]}`
+    );
+
+    return top[0];
+  }
+
+  /*
+   * Značku, která není přímo v dotazu,
+   * použijeme pouze pokud je opravdu
+   * dominantní.
+   *
+   * To je důležité například pro:
+   *
+   * iPhone -> Apple
+   *
+   * ale nechceme:
+   *
+   * notebook -> náhodný výrobce.
+   */
+  if (
+    top[1] >= 60 &&
+    (!second ||
+      top[1] >= second[1] * 1.8)
+  ) {
+    console.error(
+      `LUIGISBOX BRAND: dominantní značka = ${top[0]}`
+    );
+
+    return top[0];
+  }
+
+  return null;
+}
 
   /*
    * Výrobce přímo v dotazu:
