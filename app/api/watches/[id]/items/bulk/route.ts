@@ -81,7 +81,7 @@ export async function DELETE(
         AND id = ${itemId};
     `;
 
-    if (result.rowCount > 0) {
+    if ((result.rowCount ?? 0) > 0) {
       items.push(result.rows[0]);
     }
   }
