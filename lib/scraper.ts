@@ -968,6 +968,58 @@ function findBrand(
   const normalizedKeyword =
     normalizeText(keyword);
 
+  /*
+   * Slova, která jsou běžným označením typu produktu.
+   * Pokud je LuigiBox vrátí zároveň jako "brand",
+   * nesmíme je považovat za výrobce.
+   *
+   * Například:
+   * mixer -> LuigiBox může vrátit brand "Mixer"
+   * notebook -> není výrobce
+   */
+  const genericProductTerms = new Set([
+    "mixer",
+    "mixery",
+    "mixér",
+    "mixéry",
+    "notebook",
+    "notebooky",
+    "telefon",
+    "telefony",
+    "mobil",
+    "mobily",
+    "smartphone",
+    "smartphony",
+    "tablet",
+    "tablety",
+    "pocitac",
+    "pocitace",
+    "televize",
+    "televizor",
+    "monitor",
+    "monitory",
+    "hodinky",
+    "sluchatka",
+    "vysavac",
+    "vysavace",
+    "robot",
+    "gril",
+    "kavovar",
+    "fotoaparat",
+    "kamera",
+    "drone",
+    "dron",
+    "konzole",
+    "ventilator",
+    "ventilatory",
+    "lednice",
+    "lednicky",
+    "pracka",
+    "pracky",
+    "mycka",
+    "mycky",
+  ]);
+
   const quickHits =
     getQuickSearchHits(data);
 
@@ -989,14 +1041,28 @@ function findBrand(
 
   /*
    * Nejdříve zkusíme značku z quicksearch.
-   * To funguje například pro Dreo nebo Samsung.
+   * Ale pouze pokud nejde zároveň o obecné
+   * označení produktu.
+   *
+   * Důležité:
+   * mixer -> "Mixer" NESMÍ být značka
+   * Dreo -> "Dreo" JE značka
+   * Samsung -> "Samsung" JE značka
    */
   for (const brand of quickBrands) {
     const normalizedBrand =
       normalizeText(brand);
 
     if (
-      normalizedBrand &&
+      !normalizedBrand ||
+      genericProductTerms.has(
+        normalizedBrand
+      )
+    ) {
+      continue;
+    }
+
+    if (
       normalizedKeyword.includes(
         normalizedBrand
       )
@@ -1010,17 +1076,12 @@ function findBrand(
   }
 
   /*
-   * Důležitá pojistka:
-   * pokud je značka přímo součástí názvů
-   * relevantních produktů a zároveň je napsaná
-   * v hledaném výrazu, použijeme ji.
+   * Pojistka pro případy, kdy LuigiBox quicksearch
+   * značku nevrátí, ale značka je přímo uvedená
+   * v názvech relevantních produktů.
    *
    * Například:
    * Lenovo notebook
-   *
-   * V původním případě LuigiBox quicksearch
-   * Lenovo jako brand nevrátil, přestože Lenovo
-   * bylo přímo v názvech produktů.
    */
   const brandCandidates =
     new Map<string, number>();
@@ -1042,6 +1103,9 @@ function findBrand(
 
     if (
       !normalizedBrand ||
+      genericProductTerms.has(
+        normalizedBrand
+      ) ||
       !normalizedKeyword.includes(
         normalizedBrand
       )
@@ -1082,13 +1146,9 @@ function findBrand(
 
   /*
    * Poslední možnost:
-   * najdeme dominantního výrobce mezi relevantními
-   * produkty. To je užitečné například pro:
-   *
-   * iPhone -> Apple
-   *
-   * ale nebudeme vybírat náhodnou značku u dotazu
-   * typu "notebook".
+   * dominantní výrobce mezi relevantními produkty.
+   * Ani zde nepovolíme obecný název produktu
+   * jako "Mixer".
    */
   const brandScores =
     new Map<string, number>();
@@ -1102,6 +1162,17 @@ function findBrand(
       product.brand.trim();
 
     if (!brand) {
+      continue;
+    }
+
+    const normalizedBrand =
+      normalizeText(brand);
+
+    if (
+      genericProductTerms.has(
+        normalizedBrand
+      )
+    ) {
       continue;
     }
 
