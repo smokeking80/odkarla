@@ -63,21 +63,42 @@ export async function DELETE(
     );
   }
 
-  const items = await sql`
-    SELECT id, product_url
-    FROM found_items
-    WHERE watch_id = ${watchId}
-      AND id = ANY(${uniqueItemIds}::int[]);
-  `;
+  /*
+   * Nejdříve ověříme, které vybrané položky
+   * skutečně patří do tohoto hlídání.
+   *
+   * Nepoužíváme PostgreSQL ANY s JavaScript polem,
+   * protože @vercel/postgres v této verzi typování
+   * takový parametr nepřijímá.
+   */
+  const items = [];
 
-  if (items.rowCount === 0) {
+  for (const itemId of uniqueItemIds) {
+    const result = await sql`
+      SELECT id, product_url
+      FROM found_items
+      WHERE watch_id = ${watchId}
+        AND id = ${itemId};
+    `;
+
+    if (result.rowCount > 0) {
+      items.push(result.rows[0]);
+    }
+  }
+
+  if (items.length === 0) {
     return NextResponse.json(
       { error: "Vybrané položky nebyly nalezeny." },
       { status: 404 }
     );
   }
 
-  for (const item of items.rows) {
+  /*
+   * Stejně jako u běžného mazání uložíme URL
+   * do deleted_items, aby se ručně smazané položky
+   * při dalším scanu znovu neobjevily.
+   */
+  for (const item of items) {
     await sql`
       INSERT INTO deleted_items
         (watch_id, product_url)
@@ -86,16 +107,16 @@ export async function DELETE(
       ON CONFLICT (watch_id, product_url)
       DO NOTHING;
     `;
-  }
 
-  await sql`
-    DELETE FROM found_items
-    WHERE watch_id = ${watchId}
-      AND id = ANY(${uniqueItemIds}::int[]);
-  `;
+    await sql`
+      DELETE FROM found_items
+      WHERE watch_id = ${watchId}
+        AND id = ${item.id};
+    `;
+  }
 
   return NextResponse.json({
     success: true,
-    deleted: items.rowCount,
+    deleted: items.length,
   });
 }
