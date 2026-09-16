@@ -418,11 +418,129 @@ function getQuickSearchTitle(
   return title.trim() || null;
 }
 
+function getCategoryValues(
+  hit: LuigiHit
+): string[] {
+  const attributes =
+    hit.attributes ?? {};
+
+  const values = [
+    ...(Array.isArray(attributes.category)
+      ? attributes.category
+      : []),
+    ...(Array.isArray(
+      attributes.all_categories
+    )
+      ? attributes.all_categories
+      : []),
+  ];
+
+  return Array.from(
+    new Set(
+      values
+        .filter(
+          (value) =>
+            typeof value === "string" &&
+            value.trim() !== ""
+        )
+        .map((value) => value.trim())
+    )
+  );
+}
+
+function removeBrandFromQuery(
+  keyword: string,
+  brand: string | null
+): string {
+  if (!brand) {
+    return normalizeText(keyword);
+  }
+
+  const normalizedBrand =
+    normalizeText(brand);
+
+  const words = normalizeText(keyword)
+    .split(" ")
+    .filter(Boolean);
+
+  const brandWords = normalizedBrand
+    .split(" ")
+    .filter(Boolean);
+
+  const remaining = [...words];
+
+  for (const brandWord of brandWords) {
+    const index =
+      remaining.indexOf(
+        brandWord
+      );
+
+    if (index !== -1) {
+      remaining.splice(index, 1);
+    }
+  }
+
+  return remaining.join(" ").trim();
+}
+
+function countWordMatches(
+  category: string,
+  queryWords: string[]
+): number {
+  const normalizedCategory =
+    normalizeText(category);
+
+  let matches = 0;
+
+  for (const word of queryWords) {
+    if (
+      word.length >= 3 &&
+      normalizedCategory.includes(word)
+    ) {
+      matches++;
+    }
+  }
+
+  return matches;
+}
+
 function findCategory(
   keyword: string,
+  brand: string | null,
   products: ScrapedProduct[],
   data: LuigiResponse
 ): string | null {
+  const categoryQuery =
+    removeBrandFromQuery(
+      keyword,
+      brand
+    );
+
+  /*
+   * Samotná značka znamená:
+   *
+   * Dreo
+   * Samsung
+   * Apple
+   * Lenovo
+   *
+   * a v takovém případě nechceme
+   * žádný kategorický filtr.
+   */
+  if (!categoryQuery) {
+    return null;
+  }
+
+  const queryWords = categoryQuery
+    .split(" ")
+    .filter(
+      (word) => word.length >= 3
+    );
+
+  if (queryWords.length === 0) {
+    return null;
+  }
+
   const quickHits =
     getQuickSearchHits(data);
 
@@ -442,85 +560,245 @@ function findCategory(
           Boolean(value)
       );
 
+  /*
+   * Procházíme celou kategorizační
+   * hierarchii produktů.
+   *
+   * Příklad:
+   *
+   * Bílé zboží
+   * Klima a topení
+   * Ventilátory
+   *
+   * nebo:
+   *
+   * Bílé zboží
+   * Klima a topení
+   * Teplovzdušné ventilátory
+   */
   const categoryScores =
+    new Map<
+      string,
+      {
+        matches: number;
+        score: number;
+      }
+    >();
+
+  const relevantHits =
+    (
+      data.results?.hits ?? []
+    ).slice(0, 24);
+
+  for (const hit of relevantHits) {
+    const product =
+      convertHit(hit);
+
+    if (!product) {
+      continue;
+    }
+
+    const relevance =
+      Math.max(
+        1,
+        scoreProduct(
+          product.name,
+          keyword
+        )
+      );
+
+    for (const category of getCategoryValues(
+      hit
+    )) {
+      const matches =
+        countWordMatches(
+          category,
+          queryWords
+        );
+
+      if (matches === 0) {
+        continue;
+      }
+
+      const existing =
+        categoryScores.get(
+          category
+        ) ?? {
+          matches: 0,
+          score: 0,
+        };
+
+      existing.matches =
+        Math.max(
+          existing.matches,
+          matches
+        );
+
+      existing.score +=
+        matches * relevance;
+
+      categoryScores.set(
+        category,
+        existing
+      );
+    }
+  }
+
+  /*
+   * Nejdřív hledáme kategorii, která
+   * odpovídá všem zadaným slovům.
+   *
+   * Když je shoda stejná, vybereme
+   * kratší název = obecnější kategorii.
+   *
+   * Tím dostaneme:
+   *
+   * ventilátor
+   * -> Ventilátory
+   *
+   * místo:
+   * -> Teplovzdušné ventilátory
+   *
+   * Ale:
+   *
+   * teplovzdušný ventilátor
+   * -> Teplovzdušné ventilátory
+   */
+  const scoredCategories =
+    Array.from(
+      categoryScores.entries()
+    ).sort((a, b) => {
+      const matchDifference =
+        b[1].matches -
+        a[1].matches;
+
+      if (matchDifference !== 0) {
+        return matchDifference;
+      }
+
+      const scoreDifference =
+        b[1].score -
+        a[1].score;
+
+      if (scoreDifference !== 0) {
+        return scoreDifference;
+      }
+
+      return (
+        normalizeText(a[0]).length -
+        normalizeText(b[0]).length
+      );
+    });
+
+  if (
+    scoredCategories.length > 0
+  ) {
+    return scoredCategories[0][0];
+  }
+
+  /*
+   * Fallback na quicksearch kategorii.
+   */
+  const matchingQuickCategories =
+    quickCategories
+      .filter(
+        (category) =>
+          countWordMatches(
+            category,
+            queryWords
+          ) > 0
+      )
+      .sort((a, b) => {
+        const matchDifference =
+          countWordMatches(
+            b,
+            queryWords
+          ) -
+          countWordMatches(
+            a,
+            queryWords
+          );
+
+        if (matchDifference !== 0) {
+          return matchDifference;
+        }
+
+        return (
+          normalizeText(a).length -
+          normalizeText(b).length
+        );
+      });
+
+  if (
+    matchingQuickCategories.length > 0
+  ) {
+    return matchingQuickCategories[0];
+  }
+
+  /*
+   * U dotazů jako:
+   *
+   * iPhone
+   * iPhone 7
+   * Galaxy S21
+   *
+   * není název kategorie přímo
+   * v dotazu. Proto použijeme
+   * kategorii nejrelevantnějších
+   * produktů.
+   */
+  const productCategoryScores =
     new Map<string, number>();
 
-  const relevantProducts =
-    products
-      .slice(0, 24)
-      .map((product) => ({
-        product,
-        score: Math.max(
-          1,
-          scoreProduct(
-            product.name,
-            keyword
-          )
-        ),
-      }));
+  for (const hit of relevantHits) {
+    const product =
+      convertHit(hit);
 
-  for (const {
-    product,
-    score,
-  } of relevantProducts) {
-    if (!product.category) {
+    if (!product?.category) {
       continue;
     }
 
-    const category =
-      product.category.trim();
+    const relevance =
+      Math.max(
+        1,
+        scoreProduct(
+          product.name,
+          keyword
+        )
+      );
 
-    if (!category) {
-      continue;
-    }
-
-    categoryScores.set(
-      category,
-      (categoryScores.get(category) ?? 0) +
-        score
+    productCategoryScores.set(
+      product.category,
+      (
+        productCategoryScores.get(
+          product.category
+        ) ?? 0
+      ) + relevance
     );
   }
 
-  if (
-    quickCategories.length > 0
-  ) {
-    const matchingQuick =
-      quickCategories
-        .filter((category) =>
-          categoryScores.has(category)
-        )
-        .sort(
-          (a, b) =>
-            (categoryScores.get(b) ?? 0) -
-            (categoryScores.get(a) ?? 0)
-        );
-
-    if (matchingQuick.length > 0) {
-      return matchingQuick[0];
-    }
-
-    return quickCategories[0];
-  }
-
-  if (categoryScores.size === 0) {
-    return null;
-  }
-
-  const sorted =
+  const productCategories =
     Array.from(
-      categoryScores.entries()
+      productCategoryScores.entries()
     ).sort(
       (a, b) => b[1] - a[1]
     );
 
-  const top = sorted[0];
-  const second = sorted[1];
-
   if (
-    !second ||
-    top[1] >= second[1] * 1.15
+    productCategories.length > 0
   ) {
-    return top[0];
+    const top =
+      productCategories[0];
+
+    const second =
+      productCategories[1];
+
+    if (
+      !second ||
+      top[1] >= second[1] * 1.8
+    ) {
+      return top[0];
+    }
   }
 
   return null;
@@ -553,6 +831,13 @@ function findBrand(
           Boolean(value)
       );
 
+  /*
+   * Výrobce přímo v dotazu:
+   *
+   * Dreo ventilátor
+   * Samsung lednice
+   * Lenovo notebook
+   */
   for (const brand of quickBrands) {
     const normalizedBrand =
       normalizeText(brand);
@@ -620,6 +905,14 @@ function findBrand(
   const top = sorted[0];
   const second = sorted[1];
 
+  /*
+   * Silný dominantní výrobce může být
+   * nalezen i když není napsaný přímo
+   * v dotazu.
+   *
+   * Například:
+   * iPhone -> Apple
+   */
   if (
     top[1] >= 60 &&
     (!second ||
@@ -697,9 +990,7 @@ export async function scrapeSearchPage(
 
   /*
    * 1. fáze:
-   * Nejdřív necháme LuigiBox vrátit běžné
-   * produkty + rychlé výsledky kategorií
-   * a výrobců.
+   * Produkty + kategorie + výrobci.
    */
   const discoveryUrl =
     buildLuigiBoxUrl(
@@ -738,19 +1029,25 @@ export async function scrapeSearchPage(
 
   /*
    * 2. fáze:
-   * Z výsledků automaticky odhadneme
-   * nejvhodnější kategorii a výrobce.
+   * Nejdříve výrobce.
    */
-  const category =
-    findCategory(
+  const brand =
+    findBrand(
       keyword,
       discoveryProducts,
       discoveryData
     );
 
-  const brand =
-    findBrand(
+  /*
+   * Potom kategorie.
+   *
+   * Pokud je dotaz pouze značka,
+   * findCategory vrátí null.
+   */
+  const category =
+    findCategory(
       keyword,
+      brand,
       discoveryProducts,
       discoveryData
     );
@@ -778,8 +1075,8 @@ export async function scrapeSearchPage(
   }
 
   /*
-   * Pokud jsme nic rozumného nezjistili,
-   * použijeme rovnou výsledky první fáze.
+   * Žádný filtr:
+   * použijeme původní výsledky.
    */
   if (filters.length === 0) {
     console.error(
@@ -801,8 +1098,7 @@ export async function scrapeSearchPage(
 
   /*
    * 3. fáze:
-   * Provedeme druhý, přesnější dotaz
-   * s automaticky nalezenými filtry.
+   * Přesný dotaz s nalezenými filtry.
    */
   const filteredUrl =
     buildLuigiBoxUrl(
@@ -840,16 +1136,14 @@ export async function scrapeSearchPage(
   );
 
   /*
-   * Bezpečnostní pojistka:
-   * Pokud příliš přesný filtr vrátí nulu,
-   * nevrátíme prázdný výsledek.
+   * Pojistka proti příliš úzkému filtru.
    */
   if (
     filteredProducts.length === 0 &&
     discoveryProducts.length > 0
   ) {
     console.error(
-      "LUIGISBOX: přesný filtr vrátil 0 produktů, používám výsledky discovery."
+      "LUIGISBOX: přesný filtr vrátil 0 produktů, používám discovery výsledky."
     );
 
     return discoveryProducts;
