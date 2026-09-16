@@ -485,7 +485,7 @@ function ProductItem({
       return;
     }
 
-    const value = targetPrice.trim();
+    const value = targetPriceInput.trim();
 
     if (value !== "") {
       const parsed = Number(value);
@@ -524,7 +524,7 @@ function ProductItem({
 
       const data = await res.json();
 
-      setTargetPrice(
+      setTargetPriceInput(
         data.target_price !== null &&
           data.target_price !== undefined
           ? String(data.target_price)
@@ -690,8 +690,8 @@ function ProductItem({
         <input
           type="number"
           min="0"
-          value={targetPrice}
-          onChange={(e) => setTargetPrice(e.target.value)}
+          value={targetPriceInput}
+          onChange={(e) => setTargetPriceInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               saveTargetPrice();
