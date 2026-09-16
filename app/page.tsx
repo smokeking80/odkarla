@@ -20,6 +20,7 @@ type Item = {
   first_seen_at: string;
   watch_price: boolean;
   target_price: number | null;
+  target_reached_at: string | null;
 };
 
 function WatchCard({
@@ -747,6 +748,143 @@ function ProductItem({
   );
 }
 
+function TargetReachedSection() {
+  const [items, setItems] = useState<
+    (Item & {
+      keyword: string;
+      target_reached_at: string;
+    })[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(true);
+
+  async function loadTargetReached() {
+    try {
+      const res = await fetch("/api/target-reached", {
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        setItems([]);
+        return;
+      }
+
+      setItems(await res.json());
+    } catch (error) {
+      console.error(error);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTargetReached();
+  }, []);
+
+  return (
+    <section
+      style={{
+        marginBottom: 28,
+        padding: 18,
+        borderRadius: 14,
+        border: "1px solid rgba(255, 170, 0, 0.35)",
+        background: "rgba(255, 170, 0, 0.07)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          cursor: "pointer",
+        }}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <div>
+          <h2 style={{ margin: 0 }}>
+            🎯 Cílová cena dosažena
+            {items.length > 0 ? ` (${items.length})` : ""}
+          </h2>
+          <div
+            style={{
+              marginTop: 5,
+              opacity: 0.75,
+              fontSize: 14,
+            }}
+          >
+            Produkty, které už dosáhly své cílové ceny.
+          </div>
+        </div>
+
+        <button
+          className="secondary"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((value) => !value);
+          }}
+        >
+          {open ? "Skrýt" : "Zobrazit"}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 16 }}>
+          {loading ? (
+            <p className="empty">Načítám…</p>
+          ) : items.length === 0 ? (
+            <p className="empty">
+              Zatím žádná položka nedosáhla cílové ceny.
+            </p>
+          ) : (
+            items.map((item) => (
+              <div
+                key={item.id}
+                className="item"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  marginBottom: 10,
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <a
+                    href={item.product_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {item.name}
+                  </a>
+
+                  <div
+                    style={{
+                      fontSize: 13,
+                      marginTop: 4,
+                      opacity: 0.75,
+                    }}
+                  >
+                    Hlídání: {item.keyword} · cíl{" "}
+                    {item.target_price} Kč
+                  </div>
+                </div>
+
+                <span className="price">
+                  {item.last_price !== null
+                    ? `${item.last_price} Kč`
+                    : "Cena neznámá"}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function Home() {
   const [watches, setWatches] = useState<Watch[]>(
     []
@@ -858,6 +996,8 @@ export default function Home() {
         stávající, přijde ti zpráva na
         Telegram.
       </p>
+
+      <TargetReachedSection />
 
       <form
         className="add-watch"
